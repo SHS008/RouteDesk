@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#132b2a">
+  <meta name="description" content="A free, local-first route and service log for small teams.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <title>RouteDesk — route & service log</title>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M8 29.5 18.4 9l5.2 10.2 3.2-6.4L34 29.5H8Z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><circle cx="18.4" cy="9" r="3" fill="currentColor"/><circle cx="8" cy="29.5" r="2.6" fill="currentColor"/><circle cx="34" cy="29.5" r="2.6" fill="currentColor"/></svg></div>
+        <div class="brand-copy"><strong>RouteDesk</strong><span>ROUTE + SERVICE LOG</span></div>
+      </div>
+      <div class="workspace-label">WORKSPACE <span class="workspace-dot"></span> LOCAL</div>
+      <nav class="side-nav" aria-label="Main navigation">
+        <button class="nav-item active" data-screen="today"><span class="nav-icon">◷</span><span>Today</span><span class="nav-count" id="navTodayCount">0</span></button>
+        <button class="nav-item" data-screen="routes"><span class="nav-icon">▤</span><span>Routes</span></button>
+        <button class="nav-item" data-screen="reports"><span class="nav-icon">▥</span><span>Service log</span></button>
+        <button class="nav-item" data-screen="settings"><span class="nav-icon">⚙</span><span>Settings</span></button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="local-card"><div class="local-card-icon">✓</div><div><strong>Saved on this device</strong><span>No subscription or account</span></div></div>
+        <div class="sidebar-help">Free mode keeps your route data in this browser. Share route files or reports manually with your team.</div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="topbar-left"><span class="breadcrumb">Dispatch</span><span class="crumb-sep">/</span><strong id="screenCrumb">Today</strong></div>
+        <div class="topbar-right">
+          <span class="today-date" id="headerDate"></span>
+          <span class="local-pill"><span></span> Local workspace</span>
+          <button class="icon-button install-button" id="installButton" type="button" hidden title="Install RouteDesk">↓</button>
+        </div>
+      </header>
+
+      <div class="content-wrap">
+        <section class="screen active" id="screen-today">
+          <div class="page-heading">
+            <div><p class="eyebrow">DRIVER + DISPATCH</p><h1 id="todayTitle">Your route, at a glance.</h1><p class="page-subtitle" id="todaySubtitle">Import a stop list to get started. Mark outcomes as you go and export the finished log.</p></div>
+            <div class="heading-actions"><button class="button button-secondary" id="todayImportButton" type="button"><span>↑</span> Import CSV</button><button class="button button-primary" id="newRouteButton" type="button"><span>＋</span> New route</button></div>
+          </div>
+
+          <div class="free-notice"><div class="notice-icon">i</div><div><strong>Free mode: no live-traffic route optimization</strong><p>This app tracks and shares routes without paid APIs. It preserves your imported stop order; if coordinates are included, it can suggest an approximate distance-based order. Your chosen navigation app may provide live traffic for each leg. Right-side approaches are a driver preference, not guaranteed by this version.</p></div><button class="notice-close" id="dismissNotice" aria-label="Dismiss notice">×</button></div>
+
+          <div class="empty-state" id="todayEmpty">
+            <div class="empty-illustration"><div class="empty-route-line"></div><div class="empty-pin pin-a">1</div><div class="empty-pin pin-b">2</div><div class="empty-pin pin-c">3</div><div class="empty-sun"></div></div>
+            <p class="eyebrow">READY WHEN YOU ARE</p><h2>Start with a route list</h2><p>Paste addresses or import a CSV. RouteDesk will keep the stop order, let drivers mark serviced or skipped, and create a shareable completion report.</p>
+            <div class="empty-actions"><button class="button button-primary" id="emptyNewRoute" type="button">＋ Create a route</button><button class="button button-secondary" id="emptyImport" type="button">↑ Import CSV</button></div>
+            <button class="text-button" id="loadDemoButton" type="button">See a small demo route</button>
+          </div>
+
+          <div id="todayRouteContent" hidden>
+            <div class="route-banner">
+              <div class="route-banner-main"><div class="route-status-dot" id="routeStatusDot"></div><div><div class="route-kicker"><span id="routeDateLabel"></span><span class="small-dot">•</span><span id="routeDriverLabel"></span><span class="small-dot">•</span><span id="routeStopCountLabel"></span></div><h2 id="routeNameHeading"></h2><div class="route-address-summary" id="routeOriginSummary"></div></div></div>
+              <div class="route-banner-actions"><button class="button button-outline" id="startRouteButton" type="button">Start route</button><div class="menu-wrap"><button class="icon-button more-button" id="routeMoreButton" type="button" aria-label="Route actions">•••</button><div class="menu-popover" id="routeMenu" hidden><button data-route-action="export-json">Share route package</button><button data-route-action="export-csv">Export service log (CSV)</button><button data-route-action="edit">Edit route details</button><button class="danger-text" data-route-action="delete">Delete route</button></div></div></div>
+            </div>
+
+            <div class="summary-grid">
+              <article class="summary-card"><div class="summary-label">STOPS</div><div class="summary-value" id="summaryTotal">0</div><div class="summary-foot"><span class="summary-dot pending-dot"></span><span id="summaryPending">0 pending</span></div></article>
+              <article class="summary-card"><div class="summary-label">SERVICED</div><div class="summary-value" id="summaryServiced">0</div><div class="summary-foot"><span class="summary-dot served-dot"></span><span>Completed visits</span></div></article>
+              <article class="summary-card"><div class="summary-label">SKIPPED</div><div class="summary-value" id="summarySkipped">0</div><div class="summary-foot"><span class="summary-dot skipped-dot"></span><span>Needs review</span></div></article>
+              <article class="summary-card progress-summary"><div class="summary-label">ROUTE PROGRESS</div><div class="progress-line"><div class="progress-track"><div class="progress-fill" id="progressFill"></div></div><strong id="progressPercent">0%</strong></div><div class="summary-foot"><span id="progressText">0 of 0 stops closed</span></div></article>
+            </div>
+
+            <div class="main-grid">
+              <section class="panel stop-panel">
+                <div class="panel-heading stop-panel-heading"><div><p class="eyebrow">STOP LIST</p><h3>Route sequence</h3></div><div class="stop-panel-actions"><button class="button button-quiet" id="approxOptimizeButton" type="button" title="Approximate optimization requires latitude and longitude for every stop">✳ Approx. order</button><button class="button button-quiet" id="addStopButton" type="button">＋ Add stop</button></div></div>
+                <div class="route-sequence-note" id="sequenceNote"><span class="note-icon">↕</span><span>Imported order is preserved. Use the arrows to reorder, or include <code>lat</code>/<code>lon</code> columns for an approximate distance sort.</span></div>
+                <div class="stop-toolbar"><div class="filter-pills" role="tablist"><button class="filter-pill active" data-filter="all" type="button">All <span id="filterAllCount">0</span></button><button class="filter-pill" data-filter="pending" type="button">Pending <span id="filterPendingCount">0</span></button><button class="filter-pill" data-filter="serviced" type="button">Serviced <span id="filterServicedCount">0</span></button><button class="filter-pill" data-filter="skipped" type="button">Skipped <span id="filterSkippedCount">0</span></button></div><label class="search-box"><span>⌕</span><input id="stopSearch" type="search" placeholder="Search stops" aria-label="Search stops"></label></div>
+                <div class="stop-list" id="stopList"></div>
+                <div class="stop-list-footer"><span id="shownStopsLabel">Showing 0 stops</span><span>Times are recorded on this device</span></div>
+              </section>
+
+              <aside class="route-side-column">
+                <section class="panel next-stop-panel" id="nextStopPanel"><div class="panel-heading compact"><div><p class="eyebrow">UP NEXT</p><h3 id="nextStopTitle">No pending stops</h3></div><div class="next-number" id="nextStopNumber">—</div></div><p class="next-address" id="nextStopAddress">Add or import a route to see the next stop.</p><div class="next-actions"><button class="button button-primary button-wide" id="navigateNextButton" type="button" disabled>Open navigation <span>↗</span></button><button class="button button-quiet button-wide" id="serviceNextButton" type="button" disabled>✓ Mark serviced</button></div><div class="nav-choice-note">Navigation app: <strong id="navChoiceLabel">Google Maps</strong> <button class="inline-link" data-screen="settings" type="button">Change</button></div></section>
+                <section class="panel share-panel"><div class="panel-heading compact"><div><p class="eyebrow">TEAM HANDOFF</p><h3>Share without a server</h3></div><div class="share-icon">⇄</div></div><p>Export a route package for a driver. After the route, import their updated package or service CSV to review the results on this device.</p><div class="share-actions"><button class="button button-outline button-wide" id="shareRouteButton" type="button">⇧ Share route package</button><button class="button button-quiet button-wide" id="importPackageButton" type="button">＋ Import route package</button></div><div class="privacy-note"><span class="lock-icon">▣</span>Route data stays in this browser unless you export or share it.</div></section>
+                <section class="curbside-card"><div class="curbside-mark">↗</div><div><strong>Driver reminder</strong><p>Prefer the passenger/right curb side when safe. This free version does not calculate or guarantee curbside approaches.</p></div></section>
+              </aside>
+            </div>
+          </div>
+        </section>
+
+        <section class="screen" id="screen-routes">
+          <div class="page-heading"><div><p class="eyebrow">ROUTE LIBRARY</p><h1>Your routes</h1><p class="page-subtitle">Routes are saved in this browser. Export a route package to move it to another device.</p></div><div class="heading-actions"><button class="button button-secondary" id="routesImportButton" type="button">↑ Import CSV</button><button class="button button-primary" id="routesNewButton" type="button">＋ New route</button></div></div>
+          <div class="routes-list" id="routesList"></div>
+          <div class="empty-state compact-empty" id="routesEmpty" hidden><div class="empty-icon-round">▤</div><h2>No routes saved yet</h2><p>Create a route or import your spreadsheet.</p><button class="button button-primary" id="routesEmptyNew" type="button">＋ Create a route</button></div>
+        </section>
+
+        <section class="screen" id="screen-reports">
+          <div class="page-heading"><div><p class="eyebrow">COMPLETION HISTORY</p><h1>Service log</h1><p class="page-subtitle">Review serviced and skipped stops, then export a CSV report for your company records.</p></div><div class="heading-actions"><button class="button button-secondary" id="importCompletedButton" type="button">↑ Import completed package</button><button class="button button-primary" id="exportAllButton" type="button">↓ Export all logs</button></div></div>
+          <div class="report-summary-row" id="reportSummary"></div>
+          <section class="panel report-panel"><div class="panel-heading"><div><p class="eyebrow">ALL ROUTES</p><h3>Completion records</h3></div><label class="search-box"><span>⌕</span><input id="reportSearch" type="search" placeholder="Find a route or stop" aria-label="Search completion records"></label></div><div class="table-scroll"><table class="report-table"><thead><tr><th>ROUTE / DRIVER</th><th>DATE</th><th>STOPS</th><th>SERVICED</th><th>SKIPPED</th><th>STATUS</th><th></th></tr></thead><tbody id="reportRows"></tbody></table></div><div class="table-empty" id="reportEmpty" hidden>No routes to report yet.</div></section>
+          <div class="report-note"><span>i</span><p>For a shared team view at no subscription cost, managers can import each driver's completed CSV into the company's approved spreadsheet. This version does not live-sync between devices.</p></div>
+        </section>
+
+        <section class="screen" id="screen-settings">
+          <div class="page-heading"><div><p class="eyebrow">PREFERENCES</p><h1>Settings</h1><p class="page-subtitle">Choose how this device labels routes and opens navigation.</p></div></div>
+          <div class="settings-grid">
+            <section class="panel settings-panel"><div class="panel-heading"><div><p class="eyebrow">DRIVER PROFILE</p><h3>Route defaults</h3></div></div><label class="field-label" for="defaultDriverInput">Default driver name</label><input class="text-input" id="defaultDriverInput" placeholder="e.g. Driver 1"><p class="field-help">Used when creating a new route. Route assignments are shared through exported route files.</p><label class="field-label" for="navSelect">Navigation app</label><select class="text-input" id="navSelect"><option value="google">Google Maps</option><option value="apple">Apple Maps</option><option value="waze">Waze</option></select><p class="field-help">These free apps can provide live traffic for each individual navigation leg. RouteDesk does not reorder stops using live traffic.</p><button class="button button-primary" id="saveSettingsButton" type="button">Save settings</button></section>
+            <section class="panel settings-panel"><div class="panel-heading"><div><p class="eyebrow">FREE MODE LIMITS</p><h3>What this app does—and doesn’t</h3></div><div class="free-stamp">$0</div></div><ul class="limit-list"><li><span class="checkmark">✓</span><span>Import CSV stop lists, assign a driver, and manage 101–150 stops.</span></li><li><span class="checkmark">✓</span><span>Record serviced/skipped outcomes, timestamps, notes, and skip reasons.</span></li><li><span class="checkmark">✓</span><span>Export reports and share route packages by file.</span></li><li><span class="limit-x">!</span><span>No live-traffic route-order optimization or automatic curbside guarantee.</span></li><li><span class="limit-x">!</span><span>No account/server means route data does not automatically sync between devices.</span></li><li><span class="limit-x">!</span><span>Approximate sort uses straight-line distance only and requires coordinates.</span></li></ul></section>
+            <section class="panel settings-panel data-panel"><div class="panel-heading"><div><p class="eyebrow">DATA</p><h3>Back up or move this workspace</h3></div></div><p class="field-help">RouteDesk stores data in this browser. Export a backup before clearing browser data or switching devices.</p><div class="data-actions"><button class="button button-outline" id="backupButton" type="button">↓ Download backup</button><button class="button button-outline" id="settingsImportButton" type="button">↑ Restore backup</button><button class="button button-danger-ghost" id="clearDataButton" type="button">Clear local data</button></div><p class="privacy-note wide-note"><span class="lock-icon">▣</span>Do not share a route package outside your company if it contains customer addresses.</p></section>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation"><button class="mobile-nav-item active" data-screen="today"><span>◷</span>Today</button><button class="mobile-nav-item" data-screen="routes"><span>▤</span>Routes</button><button class="mobile-nav-item" data-screen="reports"><span>▥</span>Log</button><button class="mobile-nav-item" data-screen="settings"><span>⚙</span>Settings</button></nav>
+
+  <input type="file" id="csvInput" accept=".csv,text/csv" hidden>
+  <input type="file" id="packageInput" accept=".json,application/json" hidden>
+
+  <dialog class="modal" id="routeDialog"><form method="dialog" id="routeForm"><div class="modal-head"><div><p class="eyebrow">NEW ROUTE</p><h2>Create a route</h2></div><button class="icon-button modal-close" type="button" data-close-dialog="routeDialog">×</button></div><div class="modal-body"><label class="field-label" for="routeNameInput">Route name</label><input class="text-input" id="routeNameInput" maxlength="80" placeholder="e.g. North district — Monday" required><div class="form-row"><div><label class="field-label" for="routeDriverInput">Driver</label><input class="text-input" id="routeDriverInput" maxlength="80" placeholder="Driver name"></div><div><label class="field-label" for="routeDateInput">Route date</label><input class="text-input" id="routeDateInput" type="date"></div></div><label class="field-label" for="routeStopsInput">Stops <span class="label-soft">(one address per line)</span></label><textarea class="text-input textarea-input" id="routeStopsInput" rows="7" placeholder="Paste addresses here, one per line. For spreadsheet columns or coordinates, use Import CSV."></textarea><div class="modal-footnote">CSV import supports columns such as <code>address</code>, <code>name</code>, <code>lat</code>, <code>lon</code>, and <code>notes</code>.</div></div><div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="routeDialog">Cancel</button><button class="button button-primary" type="submit">Create route</button></div></form></dialog>
+
+  <dialog class="modal small-modal" id="stopDialog"><form method="dialog" id="stopForm"><div class="modal-head"><div><p class="eyebrow" id="stopDialogEyebrow">STOP DETAILS</p><h2 id="stopDialogTitle">Add a stop</h2></div><button class="icon-button modal-close" type="button" data-close-dialog="stopDialog">×</button></div><div class="modal-body"><label class="field-label" for="stopNameInput">Name / label</label><input class="text-input" id="stopNameInput" maxlength="100" placeholder="Optional customer or stop name"><label class="field-label" for="stopAddressInput">Address</label><input class="text-input" id="stopAddressInput" maxlength="250" placeholder="Street, city, state, ZIP" required><div class="form-row"><div><label class="field-label" for="stopLatInput">Latitude <span class="label-soft">optional</span></label><input class="text-input" id="stopLatInput" inputmode="decimal" placeholder="45.745"></div><div><label class="field-label" for="stopLonInput">Longitude <span class="label-soft">optional</span></label><input class="text-input" id="stopLonInput" inputmode="decimal" placeholder="-87.064"></div></div><label class="field-label" for="stopNotesInput">Notes</label><textarea class="text-input textarea-input" id="stopNotesInput" rows="3" placeholder="Optional instructions"></textarea></div><div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="stopDialog">Cancel</button><button class="button button-primary" type="submit">Save stop</button></div></form></dialog>
+
+  <dialog class="modal small-modal" id="skipDialog"><form method="dialog" id="skipForm"><div class="modal-head"><div><p class="eyebrow">STOP OUTCOME</p><h2>Mark as skipped</h2></div><button class="icon-button modal-close" type="button" data-close-dialog="skipDialog">×</button></div><div class="modal-body"><p class="skip-stop-address" id="skipStopAddress"></p><label class="field-label" for="skipReasonInput">Reason <span class="label-soft">optional</span></label><select class="text-input" id="skipReasonInput"><option value="">Select a reason</option><option>Customer unavailable</option><option>Address not found</option><option>No access</option><option>Safety or road issue</option><option>Outside service area</option><option>Other</option></select><label class="field-label" for="skipNotesInput">Note <span class="label-soft">optional</span></label><textarea class="text-input textarea-input" id="skipNotesInput" rows="3" placeholder="Add a brief note for the manager"></textarea></div><div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="skipDialog">Cancel</button><button class="button button-danger" type="submit">Record skip</button></div></form></dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js" defer></script>
+</body>
+</html>
