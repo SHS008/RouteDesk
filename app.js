@@ -1,7 +1,8 @@
 (() => {
   'use strict';
   const STORAGE_KEY = 'routedesk-free-workspace-v1';
-  const APP_VERSION = '1.1';
+  const OUTBOX_KEY = 'routedesk-outbox-v1';
+  const APP_VERSION = '1.2';
   const $ = (id) => document.getElementById(id);
   const todayISO = () => {
     const d = new Date();
@@ -18,6 +19,7 @@
       navigation: 'google',
       navMode: 'app',        // 'app' opens a map app, 'copy' copies the address
       tripStops: 'auto',     // stops per navigation trip: auto | 3 | 5 | 9
+      sync: { url: '', anonKey: '', teamCode: '', device: '', autoSubmit: true },
       noticeDismissed: false
     }
   });
@@ -117,9 +119,11 @@
     screen = next;
     document.querySelectorAll('.screen').forEach(el => el.classList.toggle('active', el.id === `screen-${next}`));
     document.querySelectorAll('[data-screen]').forEach(el => el.classList.toggle('active', el.dataset.screen === next));
-    const labels = {today:'Today',library:'Master lists',routes:'Routes',reports:'Service log',settings:'Settings'};
+    const labels = {today:'Today',library:'Master lists',routes:'Routes',completed:'Completed jobs',reports:'Service log',settings:'Settings'};
     $('screenCrumb').textContent = labels[next] || 'Today';
     render();
+    // The manager view must never show a cached team's rows.
+    if (next === 'completed' && syncReady()) fetchCompletedRuns({ quiet: true });
     window.scrollTo({top:0,behavior:'smooth'});
   }
   function render() {
@@ -128,6 +132,7 @@
     renderToday();
     renderLibrary();
     renderRoutes();
+    renderCompletedJobs();
     renderReports();
     renderSettings();
     $('dismissNotice').hidden = !!state.settings.noticeDismissed;
@@ -314,6 +319,7 @@
     if (mode && document.activeElement !== mode) mode.value=state.settings.navMode||'app';
     if (trip && document.activeElement !== trip) trip.value=state.settings.tripStops||'auto';
     const version=$('appVersion'); if(version) version.textContent=`RouteDesk V${APP_VERSION}`;
+    renderSyncSettings();
   }
   function setActiveRoute(id) {
     if (!state.routes.some(r=>r.id===id)) return;
@@ -459,7 +465,10 @@
     const route=getActiveRoute();if(!route)return;
     const now=new Date().toISOString();
     route.status='complete';route.completedAt=now;route.updatedAt=now;
+    const submitted=route;
     closeDialog('completeDialog');
+    // Automatic hand-off to the manager portal (queued when offline).
+    submitCompletedRun(submitted);
     if(mode==='restart'){
       const next=freshRunFrom(route);
       state.activeRouteId=next.id;saveState();render();setScreen('today');
@@ -634,6 +643,241 @@
     ].map(s=>normalizeStop({...s,id:uid()}));
     createRoute({name:'Demo route — replace with your list',driver:state.settings.defaultDriver,date:todayISO(),stops});
   }
+  // ------------------------------------------------------------------
+  // Cloud sync: a finished run is submitted to the owner's Supabase
+  // project automatically, so the manager reviews it in Completed jobs
+  // instead of collecting spreadsheets.
+  // ------------------------------------------------------------------
+  let cloudRuns = null;          // last successful fetch for the manager view
+  let cloudStatus = 'idle';      // idle | syncing | error | off
+  let cloudError = '';
+
+  function syncConfig() {
+    const cfg = state.settings.sync || {};
+    return { url: String(cfg.url || '').trim().replace(/\/+$/, ''), anonKey: String(cfg.anonKey || '').trim(), teamCode: String(cfg.teamCode || '').trim(), device: String(cfg.device || '').trim(), autoSubmit: cfg.autoSubmit !== false };
+  }
+  function syncReady() {
+    const c = syncConfig();
+    return !!(c.url && c.anonKey && c.teamCode);
+  }
+  function syncHeaders() {
+    const c = syncConfig();
+    return {
+      'apikey': c.anonKey,
+      'Authorization': `Bearer ${c.anonKey}`,
+      'Content-Type': 'application/json',
+      'X-Team-Code': c.teamCode
+    };
+  }
+  function readOutbox() {
+    try { const raw = localStorage.getItem(OUTBOX_KEY); const list = raw ? JSON.parse(raw) : []; return Array.isArray(list) ? list : []; }
+    catch (_) { return []; }
+  }
+  function writeOutbox(list) {
+    try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(list)); } catch (_) {}
+    renderSyncBadge();
+  }
+  function queueRun(route) {
+    const list = readOutbox().filter(item => item.payload.id !== route.id);
+    list.push({ payload: completedRunPayload(route), queuedAt: new Date().toISOString(), attempts: 0, lastError: '' });
+    writeOutbox(list);
+    return list.length;
+  }
+  function completedRunPayload(route) {
+    const c = counts(route);
+    const cfg = syncConfig();
+    return {
+      id: route.id,
+      team_id: cfg.teamCode,
+      name: route.name || 'Untitled route',
+      route_date: route.date || todayISO(),
+      driver: route.driver || '',
+      completed_at: route.completedAt || new Date().toISOString(),
+      stop_count: c.total,
+      serviced: c.serviced,
+      skipped: c.skipped,
+      device: cfg.device || route.driver || '',
+      stops: route.stops.map((s, i) => ({
+        sequence: i + 1, name: s.name || '', address: s.address || '',
+        lat: s.lat ?? null, lon: s.lon ?? null, status: s.status,
+        completed_at: s.completedAt || null, skip_reason: s.skipReason || '', notes: s.notes || ''
+      }))
+    };
+  }
+  // Uploads run immediately when possible. Anything that fails stays in the
+  // outbox and is retried on the next load, focus, or return to connectivity, so
+  // a driver finishing in a dead zone loses nothing.
+  async function flushOutbox(options = {}) {
+    extract:
+    if (!syncReady()) return { sent: 0, pending: readOutbox().length, reason: 'not-configured' };
+    const list = readOutbox();
+    if (!list.length) { if (!options.quiet) renderSyncBadge(); return { sent: 0, pending: 0 }; }
+    cloudStatus = 'syncing'; renderSyncBadge();
+    let sent = 0;
+    const remaining = [];
+    for (const item of list) {
+      try {
+        const res = await fetch(`${syncConfig().url}/rest/v1/completed_runs?on_conflict=id`, {
+          method: 'POST',
+          headers: Object.assign(syncHeaders(), { 'Prefer': 'resolution=merge-duplicates,return=representation' }),
+          body: JSON.stringify([item.payload])
+        });
+        if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 140)}`);
+        sent++;
+      } catch (err) {
+        item.attempts = (item.attempts || 0) + 1;
+        item.lastError = String(err.message || err).slice(0, 200);
+        remaining.push(item);
+      }
+    }
+    writeOutbox(remaining);
+    cloudStatus = remaining.length ? 'error' : 'idle';
+    cloudError = remaining.length ? remaining[0].lastError : '';
+    renderSyncBadge();
+    if (sent && !options.quiet) showToast(`Submitted ${sent} completed run${sent === 1 ? '' : 's'} to the manager portal.`);
+    return { sent, pending: remaining.length };
+  }
+  function submitCompletedRun(route) {
+    if (!syncReady() || !syncConfig().autoSubmit) return;
+    queueRun(route);
+    renderSyncBadge();
+    flushOutbox({ quiet: false });
+  }
+  async function fetchCompletedRuns(options = {}) {
+    if (!syncReady()) { cloudStatus = 'off'; cloudRuns = []; renderCompletedJobs(); return []; }
+    cloudStatus = 'syncing'; renderSyncBadge();
+    try {
+      const c = syncConfig();
+      const res = await fetch(`${c.url}/rest/v1/completed_runs?select=*&team_id=eq.${encodeURIComponent(c.teamCode)}&order=completed_at.desc&limit=500`, { headers: syncHeaders() });
+      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 140)}`);
+      cloudRuns = await res.json();
+      cloudStatus = 'idle'; cloudError = '';
+    } catch (err) {
+      cloudStatus = 'error'; cloudError = String(err.message || err).slice(0, 200); cloudRuns = null;
+    }
+    renderSyncBadge();
+    renderCompletedJobs();
+    if (!options.quiet && cloudStatus === 'error') showToast('Could not reach the manager portal. Check the sync settings.');
+    return cloudRuns || [];
+  }
+  function cloudRunToRoute(row) {
+    return normalizeRoute({
+      id: row.id, name: row.name, date: row.route_date, driver: row.driver, status: 'complete',
+      completedAt: row.completed_at, updatedAt: row.completed_at,
+      stops: (row.stops || []).map(s => normalizeStop({
+        id: uid(), name: s.name, address: s.address, lat: s.lat, lon: s.lon,
+        notes: s.notes, status: s.status, completedAt: s.completed_at, skipReason: s.skip_reason
+      }))
+    });
+  }
+  function renderSyncBadge() {
+    const badge = $('syncBadge');
+    if (!badge) return;
+    const pending = readOutbox().length;
+    let label, tone;
+    if (!syncReady()) { label = 'Cloud off'; tone = 'off'; }
+    else if (cloudStatus === 'syncing') { label = 'Syncing…'; tone = 'busy'; }
+    else if (pending) { label = `${pending} to submit`; tone = 'pending'; }
+    else if (cloudStatus === 'error') { label = 'Sync error'; tone = 'error'; }
+    else { label = 'Cloud synced'; tone = 'ok'; }
+    badge.textContent = label;
+    badge.className = `sync-badge ${tone}`;
+    badge.title = syncReady() ? (cloudError || `Team ${syncConfig().teamCode.slice(0, 4)}… · ${pending} queued`) : 'Add your Supabase project to submit completed jobs automatically.';
+    const pill = $('localPill');
+    if (pill) pill.textContent = syncReady() ? 'Cloud workspace' : 'Local workspace';
+    const mirror = $('syncBadgeSettings');
+    if (mirror) { mirror.textContent = label; mirror.className = `sync-badge ${tone}`; }
+  }
+  function renderCompletedJobs() {
+    const list = $('completedList'); if (!list) return;
+    const empty = $('completedEmpty'); const setup = $('completedSetup');
+    if (!syncReady()) {
+      list.innerHTML = ''; empty.hidden = true; setup.hidden = false;
+      const note = $('completedQueueNote');
+      if (note) note.hidden = readOutbox().length === 0;
+      return;
+    }
+    setup.hidden = true;
+    const q = (state.ui && state.ui.completedSearch || '').trim().toLowerCase();
+    let rows = cloudRuns || [];
+    if (q) rows = rows.filter(r => `${r.name} ${r.driver} ${r.route_date} ${(r.stops || []).map(s => s.address).join(' ')}`.toLowerCase().includes(q));
+    if (cloudRuns === null) { list.innerHTML = '<div class="route-section-empty">Could not load completed jobs. Check the sync settings and retry.</div>'; empty.hidden = true; return; }
+    if (!rows.length) { list.innerHTML = ''; empty.hidden = false; }
+    else {
+      empty.hidden = true;
+      list.innerHTML = `<div class="table-scroll"><table class="report-table"><thead><tr><th>ROUTE</th><th>DATE COMPLETED</th><th>DRIVER</th><th>STOPS</th><th>SERVICED</th><th>SKIPPED</th><th></th></tr></thead><tbody>${rows.map(r => `
+        <tr><td><div class="table-route-name">${esc(r.name)}</div><div class="table-route-driver">${esc(r.device || '')}</div></td>
+        <td>${esc(prettyDate((r.completed_at || '').slice(0, 10), { month: 'short', day: 'numeric', year: 'numeric' }))}</td>
+        <td>${esc(r.driver || '—')}</td><td>${esc(r.stop_count)}</td><td>${esc(r.serviced)}</td><td>${esc(r.skipped)}</td>
+        <td class="nowrap"><button class="mini-button" data-review-run="${esc(r.id)}">Review</button><button class="mini-button" data-cloud-csv="${esc(r.id)}">CSV</button></td></tr>`).join('')}</tbody></table></div>`;
+    }
+    const note = $('completedQueueNote');
+    if (note) note.hidden = readOutbox().length === 0;
+  }
+  function openReview(runId) {
+    const row = (cloudRuns || []).find(r => r.id === runId);
+    if (!row) return;
+    const route = cloudRunToRoute(row);
+    const c = counts(route);
+    $('reviewTitle').textContent = route.name;
+    $('reviewMeta').textContent = `${prettyDate(route.date)} · ${route.driver || 'Unassigned'} · ${c.total} stops · completed ${new Date(row.completed_at).toLocaleString()}`;
+    $('reviewBody').innerHTML = route.stops.map((s, i) => `
+      <div class="review-stop ${esc(s.status)}">
+        <span class="sequence-badge">${String(i + 1).padStart(2, '0')}</span>
+        <div><strong>${esc(s.name || s.address || 'Stop')}</strong><div class="review-address">${esc(s.address)}</div>
+        ${s.skipReason ? `<div class="review-note">Reason: ${esc(s.skipReason)}</div>` : ''}
+        ${s.notes ? `<div class="review-note">Note: ${esc(s.notes)}</div>` : ''}</div>
+        <span class="status-chip ${esc(s.status)}">${esc(s.status)}</span>
+      </div>`).join('');
+    openDialog('reviewDialog');
+  }
+  function downloadCloudRunCSV(runId) {
+    const row = (cloudRuns || []).find(r => r.id === runId);
+    if (row) exportRouteCSV(cloudRunToRoute(row));
+  }
+  function downloadAllCloudCSV() {
+    const rows = cloudRuns || [];
+    if (!rows.length) { showToast('No completed jobs to export yet.'); return; }
+    const headers = ['route_name', 'route_date', 'driver', 'sequence', 'stop_name', 'address', 'latitude', 'longitude', 'status', 'completed_at', 'skip_reason', 'notes', 'device'];
+    const out = [headers];
+    rows.forEach(r => (r.stops || []).forEach(s => out.push([r.name, r.route_date, r.driver, s.sequence, s.name, s.address, s.lat ?? '', s.lon ?? '', s.status, s.completed_at || '', s.skip_reason || '', s.notes || '', r.device || ''])));
+    downloadText(`routedesk-completed-jobs-${todayISO()}.csv`, '\ufeff' + out.map(r => r.map(csvEscape).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
+    showToast(`Exported ${rows.length} completed jobs.`);
+  }
+  async function testSync() {
+    saveSyncSettings();
+    if (!syncReady()) { showToast('Fill in the project URL, anon key, and team code first.'); return; }
+    const btn = $('testSyncButton'); if (btn) { btn.disabled = true; btn.textContent = 'Testing…'; }
+    const result = await flushOutbox({ quiet: true });
+    await fetchCompletedRuns({ quiet: true });
+    if (btn) { btn.disabled = false; btn.textContent = 'Test connection'; }
+    if (cloudStatus === 'error') showToast(`Connection failed: ${cloudError}`);
+    else showToast(`Connected. ${(cloudRuns || []).length} completed job${(cloudRuns || []).length === 1 ? '' : 's'} visible${result.pending ? ` · ${result.pending} still queued` : ''}.`);
+  }
+  function saveSyncSettings() {
+    const before = syncConfig();
+    state.settings.sync = {
+      url: $('syncUrlInput').value.trim(), anonKey: $('syncKeyInput').value.trim(),
+      teamCode: $('syncTeamInput').value.trim(), device: $('syncDeviceInput').value.trim(),
+      autoSubmit: $('syncAutoInput').checked
+    };
+    const after = syncConfig();
+    if (after.url !== before.url || after.teamCode !== before.teamCode || after.anonKey !== before.anonKey) {
+      cloudRuns = null; cloudStatus = 'idle'; cloudError = '';
+      renderCompletedJobs();
+    }
+    saveState(); renderSyncBadge();
+    if (syncReady()) fetchCompletedRuns({ quiet: true });
+  }
+  function renderSyncSettings() {
+    const c = syncConfig();
+    const map = { syncUrlInput: c.url, syncKeyInput: c.anonKey, syncTeamInput: c.teamCode, syncDeviceInput: c.device };
+    Object.keys(map).forEach(id => { const el = $(id); if (el && document.activeElement !== el) el.value = map[id]; });
+    const auto = $('syncAutoInput'); if (auto) auto.checked = c.autoSubmit;
+    const state$ = $('syncStateLine');
+    if (state$) state$.textContent = syncReady() ? 'Configured. Completed runs submit automatically.' : 'Not configured yet — follow the setup steps on the Completed jobs screen.';
+  }
+
   function defaultTemplateName(base) { return String(base || 'Master list').replace(/\.[^.]+$/, '').trim() || 'Master list'; }
   function templateStops(stops) {
     return (stops || []).map(s => normalizeStop({ id: uid(), name: s.name || '', address: s.address || '', lat: s.lat ?? null, lon: s.lon ?? null, notes: s.notes || '', status: 'pending', completedAt: null, skipReason: '' }));
@@ -733,6 +977,8 @@
     const delTemplate=event.target.closest('[data-delete-template]');if(delTemplate){deleteTemplate(delTemplate.dataset.deleteTemplate);return;}
     const restart=event.target.closest('[data-restart-route]');if(restart){restartRoute(restart.dataset.restartRoute);return;}
     const completeMode=event.target.closest('[data-complete-mode]');if(completeMode){finishRoute(completeMode.dataset.completeMode);return;}
+    const review=event.target.closest('[data-review-run]');if(review){openReview(review.dataset.reviewRun);return;}
+    const cloudCsv=event.target.closest('[data-cloud-csv]');if(cloudCsv){downloadCloudRunCSV(cloudCsv.dataset.cloudCsv);return;}
     const filter=event.target.closest('[data-filter]');if(filter){stopFilter=filter.dataset.filter;document.querySelectorAll('.filter-pill').forEach(b=>b.classList.toggle('active',b===filter));renderStops(getActiveRoute());return;}
     const rowAction=event.target.closest('[data-action]');if(rowAction){const id=rowAction.dataset.id;const route=getActiveRoute();const stop=route?.stops.find(s=>s.id===id);if(!stop)return;switch(rowAction.dataset.action){case 'service':changeStopStatus(id,'serviced');break;case 'skip':openSkipDialog(stop);break;case 'undo':changeStopStatus(id,'pending');break;case 'edit':openStopDialog(stop);break;case 'up':moveStop(id,-1);break;case 'down':moveStop(id,1);break;case 'navigate':openNavigation(id);break;}return;}
   }
@@ -770,6 +1016,13 @@
     ['libraryNewButton','libraryEmptyNew'].forEach(id=>$(id).addEventListener('click',()=>openListDialog()));
     $('listForm').addEventListener('submit',onListFormSubmit);
     $('finishRouteButton').addEventListener('click',openCompleteDialog);
+    $('saveSyncButton').addEventListener('click',()=>{saveSyncSettings();showToast('Sync settings saved.');});
+    $('testSyncButton').addEventListener('click',testSync);
+    $('refreshCompletedButton').addEventListener('click',()=>fetchCompletedRuns());
+    $('exportCompletedButton').addEventListener('click',downloadAllCloudCSV);
+    window.addEventListener('online',()=>flushOutbox({quiet:false}));
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)flushOutbox({quiet:true});});
+    const cSearch=$('completedSearch'); if(cSearch) cSearch.addEventListener('input',e=>{state.ui=state.ui||{};state.ui.completedSearch=e.target.value;renderCompletedJobs();});
     $('navigateRouteButton').addEventListener('click',openNextStops);
     $('csvInput').addEventListener('change',e=>{handleCSVFile(e.target.files[0]);e.target.value='';});
     ['importPackageButton','importCompletedButton','settingsImportButton'].forEach(id=>$(id).addEventListener('click',()=>$('packageInput').click()));
@@ -810,6 +1063,8 @@
   }
   function init() {
     initEvents();
+    if (syncReady()) { flushOutbox({ quiet: true }); fetchCompletedRuns({ quiet: true }); }
+    renderSyncBadge();
     $('defaultDriverInput').value=state.settings.defaultDriver||'Driver 1';$('navSelect').value=state.settings.navigation||'google';
     render();
   }

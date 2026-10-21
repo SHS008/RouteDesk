@@ -1,0 +1,80 @@
+# Connecting RouteDesk to your manager portal
+
+**Time:** about 5 minutes · **Cost:** $0 on Supabase's free plan
+**What you get:** a driver finishes a route → it appears in the owner's **Completed jobs** tab automatically. No spreadsheets to collect.
+
+You only do steps 1–3 once. After that, each device needs the same three values pasted into Settings.
+
+---
+
+## Step 1 — Create the project (your account)
+
+1. Sign up at <https://supabase.com> using a **company-owned** email address. This account will hold every address your drivers submit, so it should not be a personal or temporary mailbox.
+2. **New project**. Name it something like `routedesk`. Pick the region closest to you (**East US** for Michigan). Save the database password somewhere safe — you won't need it for RouteDesk, but you can't recover it later.
+3. Wait ~2 minutes for provisioning.
+
+Free plan notes: 500 MB database, no automatic backups, and the project **pauses after a week with no activity**. Daily route use keeps it active. If it does pause, open the dashboard and resume — your data is kept.
+
+## Step 2 — Create the table and its security rules
+
+1. In your project, open **SQL Editor** → **New query**.
+2. Paste the entire contents of [`schema.sql`](./schema.sql) from this folder.
+3. Click **Run**. You should see "Success. No rows returned."
+
+This creates one table, `completed_runs`, and locks it so that a device can only read and add rows carrying its own team code.
+
+## Step 3 — Pick a team code
+
+In the same SQL Editor, run:
+
+```sql
+select encode(gen_random_bytes(18), 'base64');
+```
+
+Copy the result — that is your **team code**. Use the *same* string on every device. Treat it like a shared password.
+
+## Step 4 — Copy your project URL and anon key
+
+1. **Project Settings** (gear, bottom-left) → **API**.
+2. Copy **Project URL** — looks like `https://abcdefghijk.supabase.co`.
+3. Copy **anon / public** key — the long `eyJ...` string.
+
+> ⚠️ Never use the **`service_role`** key in RouteDesk. It ignores every security rule and would expose all your data. The anon key is public by design and is the correct one.
+
+## Step 5 — Enter it on each device
+
+Open RouteDesk → **Settings** → **Manager portal**:
+
+| Field | What to paste |
+|---|---|
+| Supabase project URL | `https://yourproject.supabase.co` |
+| Anon public key | the `eyJ...` string |
+| Team code | the string from step 3 — **identical on every device** |
+| This device name | e.g. `Truck 1 — Dana` or `Office PC` |
+
+Leave **Submit completed runs automatically** checked. Tap **Save sync settings**, then **Test connection**. You should see "Connected."
+
+The badge in the top bar reads **Cloud synced** when everything is working, **N to submit** when runs are queued, and **Cloud off** when sync isn't configured.
+
+## How it behaves
+
+- **Driver finishes a run** → submitted immediately. If there's no signal, the run is queued on the device and uploads the moment it's back online (also on next app open, and on returning to the app).
+- **Nothing is ever lost in a dead zone.** The run is stored locally first, exactly as before; the cloud is a copy.
+- **Resubmitting is safe.** Runs are keyed by the run's own ID, so a retried upload replaces the copy instead of duplicating it.
+- **Manager review** → **Completed jobs** tab lists every submitted run with date, driver, device, and serviced/skipped counts. **Review** opens the stop-level record; **CSV** exports one run; **Export all jobs** exports everything.
+- **Wrong team code** = you see nothing. Teams are isolated by the code.
+
+## What this setup does and does not protect
+
+- It **does** isolate your company's runs from any other company using RouteDesk.
+- It **does not** protect against someone who has all three of: your site URL, the public anon key (visible in any visitor's page source), and your team code. With all three they could read and add completed runs.
+- That is an acceptable trade for addresses alone, which is your situation. **If you ever add customer names, phone numbers, gate codes, or anything identifying, stop and move to real sign-in (Supabase Auth) first.** The schema is ready for that change — it only needs a `user_id`-based policy added.
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| "Sync error" badge | Wrong URL/key, or schema not run | Re-check step 4 values; confirm step 2 succeeded |
+| "Could not reach the manager portal" | Project paused (free tier, 7 days idle) | Resume it in the Supabase dashboard |
+| Completed jobs is empty but drivers submitted | Team code differs by a typo or a trailing space | Compare the code character-for-character on both devices |
+| Setup screen keeps appearing | URL, key, or code field is blank | All three are required |

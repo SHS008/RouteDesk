@@ -1,6 +1,24 @@
-# RouteDesk V1.1
+# RouteDesk V1.2
 
 **A $0-first, local-first route and service log PWA for small delivery/service teams.** RouteDesk is a static browser app: no account, database, API key, subscription, or server-side code is required.
+
+## What's new in V1.2
+
+- **Completed jobs portal** — when a driver taps *Finish route*, the completed run is
+  submitted to a Supabase project **you own** and shows up in the owner's **Completed
+  jobs** tab: date, driver, device, serviced/skipped counts, and the full stop-level
+  record. No spreadsheets to collect.
+- **Offline-safe submission** — a run finished with no signal is queued on the device
+  and uploads the moment it reconnects. Runs are keyed by their own ID, so a retried
+  upload replaces the copy instead of duplicating it.
+- **Team isolation by team code** — no user accounts to administer. Each company's
+  runs are visible only to devices using the same team code.
+- **Review & export** — open any submitted run to see every stop's outcome, skip
+  reason, and notes; export one run or all of them as CSV.
+
+Setup takes about five minutes and costs nothing on Supabase's free plan:
+see [`supabase/SETUP.md`](./supabase/SETUP.md). RouteDesk still works fully offline
+and locally with no cloud configured — sync is additive.
 
 ## What's new in V1.1
 
@@ -61,7 +79,8 @@ This is intentionally not a paid dispatch/optimization service:
 
 - **No live-traffic stop-order optimization.** The imported order is kept. An optional approximate reorder is available only when every stop has latitude and longitude; it uses straight-line distances, anchors the first stop, and does not represent road distance, travel time, or current traffic.
 - **No automatic right/passenger-side or curbside guarantee.** Drivers should use their safe-side preference and follow local road conditions.
-- **No automatic sharing or cross-device sync.** Each browser has its own local workspace. Dispatchers and drivers exchange route JSON packages or CSV reports manually using company-approved storage or messaging.
+- **No live location tracking.** RouteDesk does not report where a driver is. The cloud copy is submitted when a run is *finished*, not continuously.
+- **No live multi-device editing.** Each browser keeps its own working copy of a run. Cross-device sharing happens through the completed-jobs submission, or manually through route JSON packages and CSV reports.
 - There is no login or access control. Anyone with access to a device can use its local workspace. Exported route files and CSV logs may contain customer addresses.
 - Launching a navigation app sends the selected stop/destination to that provider. RouteDesk itself does not send route records to a server.
 
@@ -129,6 +148,8 @@ service-worker update, so an update does not clear anyone's route data.
 ## Files
 
 - `index.html` — app interface
+- `supabase/schema.sql` — cloud table and security policy for the Completed jobs portal
+- `supabase/SETUP.md` — five-minute setup guide
 - Master lists, runs, and past routes are all stored in the same browser workspace
 - `styles.css` — responsive mobile/desktop layout
 - `app.js` — local storage, route and stop operations, CSV/JSON import-export, and map links
