@@ -1,6 +1,14 @@
-# RouteDesk V1.4
+# RouteDesk V1.5
 
 **A $0-first, local-first route and service log PWA for small delivery/service teams.** RouteDesk is a static browser app: no account, database, API key, subscription, or server-side code is required.
+
+## What's new in V1.5
+
+- **Any project URL format works** — paste the Supabase *Project URL*, the bare project
+  ref, the address-bar dashboard URL, or a URL with a path or trailing slash. RouteDesk
+  reduces it to the API base and shows you what it resolved to.
+- **Unusable input is rejected** instead of being saved silently, and the field is
+  corrected in place so you can see what was stored.
 
 ## What's new in V1.4
 

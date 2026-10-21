@@ -18,7 +18,7 @@
     <aside class="sidebar">
       <div class="brand-row">
         <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M8 29.5 18.4 9l5.2 10.2 3.2-6.4L34 29.5H8Z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><circle cx="18.4" cy="9" r="3" fill="currentColor"/><circle cx="8" cy="29.5" r="2.6" fill="currentColor"/><circle cx="34" cy="29.5" r="2.6" fill="currentColor"/></svg></div>
-        <div class="brand-copy"><strong>RouteDesk <em class="version-tag" id="versionTag">V1.3</em></strong><span>ROUTE + SERVICE LOG</span></div>
+        <div class="brand-copy"><strong>RouteDesk <em class="version-tag" id="versionTag">V1.5</em></strong><span>ROUTE + SERVICE LOG</span></div>
       </div>
       <div class="workspace-label">WORKSPACE <span class="workspace-dot"></span> LOCAL</div>
       <nav class="side-nav" aria-label="Main navigation">
@@ -159,6 +159,7 @@
               <p class="field-help" id="syncStateLine">Not configured yet.</p>
               <label class="field-label" for="syncUrlInput">Supabase project URL</label>
               <input class="text-input" id="syncUrlInput" placeholder="https://yourproject.supabase.co" autocapitalize="off" autocorrect="off" spellcheck="false">
+              <p class="field-help">Find it in Supabase under <strong>Project Settings → API → Project URL</strong>, or just read your browser's address bar while inside the project — the piece after <code>/project/</code> is your project ref, and your URL is <code>https://&lt;that-ref&gt;.supabase.co</code>. You can paste the ref on its own and RouteDesk will fill in the rest.</p>
               <label class="field-label" for="syncKeyInput">Anon public key</label>
               <input class="text-input" id="syncKeyInput" placeholder="eyJhbGciOi…" autocapitalize="off" autocorrect="off" spellcheck="false">
               <p class="field-help">The anon key is public by design and is safe to keep in this device's storage. Never paste the <code>service_role</code> key here — it bypasses every security rule.</p>
@@ -170,7 +171,7 @@
               <div class="data-actions"><button class="button button-primary" id="saveSyncButton" type="button">Save sync settings</button><button class="button button-outline" id="testSyncButton" type="button">Test connection</button></div>
               <p class="field-help">Setup steps are on the <strong>Completed jobs</strong> screen. The team code is the only secret — anyone with your site URL, the public anon key, and this code can read and add completed runs for your team.</p>
             </section>
-            <section class="panel settings-panel data-panel"><div class="panel-heading"><div><p class="eyebrow">DATA</p><h3>Back up or move this workspace</h3></div></div><p class="field-help">RouteDesk stores data in this browser. Export a backup before clearing browser data or switching devices.</p><div class="data-actions"><button class="button button-outline" id="backupButton" type="button">↓ Download backup</button><button class="button button-outline" id="settingsImportButton" type="button">↑ Restore backup</button><button class="button button-danger-ghost" id="clearDataButton" type="button">Clear local data</button></div><p class="privacy-note wide-note"><span class="lock-icon">▣</span>Do not share a route package outside your company if it contains customer addresses.</p><p class="field-help"><span id="appVersion">RouteDesk V1.3</span> · master lists, reusable runs, and grouped navigation.</p></section>
+            <section class="panel settings-panel data-panel"><div class="panel-heading"><div><p class="eyebrow">DATA</p><h3>Back up or move this workspace</h3></div></div><p class="field-help">RouteDesk stores data in this browser. Export a backup before clearing browser data or switching devices.</p><div class="data-actions"><button class="button button-outline" id="backupButton" type="button">↓ Download backup</button><button class="button button-outline" id="settingsImportButton" type="button">↑ Restore backup</button><button class="button button-danger-ghost" id="clearDataButton" type="button">Clear local data</button></div><p class="privacy-note wide-note"><span class="lock-icon">▣</span>Do not share a route package outside your company if it contains customer addresses.</p><p class="field-help"><span id="appVersion">RouteDesk V1.5</span> · master lists, reusable runs, and grouped navigation.</p></section>
           </div>
         </section>
       </div>

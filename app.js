@@ -2,7 +2,7 @@
   'use strict';
   const STORAGE_KEY = 'routedesk-free-workspace-v1';
   const OUTBOX_KEY = 'routedesk-outbox-v1';
-  const APP_VERSION = '1.4';
+  const APP_VERSION = '1.5';
   const $ = (id) => document.getElementById(id);
   const todayISO = () => {
     const d = new Date();
@@ -697,9 +697,35 @@ create policy "team can resubmit completed runs"
 
 grant select, insert, update on public.completed_runs to anon;`;
 
+  // People paste one of several things into the URL field. Accept them all and
+  // reduce each to the API base, so nobody has to know the exact format:
+  //   https://abcdefghijklmnop.supabase.co        (the Project URL)
+  //   abcdefghijklmnop                            (the project ref)
+  //   https://supabase.com/dashboard/project/abcdefghijklmnop
+  //   abcdefghijklmnop.supabase.co                (missing the scheme)
+  function normalizeSupabaseUrl(raw) {
+    let v = String(raw || '').trim();
+    if (!v) return '';
+    const dashboard = v.match(/supabase\.com\/dashboard\/project\/([A-Za-z0-9_-]+)/i);
+    if (dashboard) return `https://${dashboard[1].toLowerCase()}.supabase.co`;
+    if (/^[A-Za-z0-9_-]{6,}$/.test(v) && !v.includes('.')) return `https://${v.toLowerCase()}.supabase.co`;
+    if (!/^https?:\/\//i.test(v)) v = `https://${v}`;
+    try {
+      const parsed = new URL(v);
+      if (!parsed.hostname.includes('.')) return '';
+      return `${parsed.protocol}//${parsed.host}`;
+    } catch (_) { return ''; }
+  }
   function syncConfig() {
     const cfg = state.settings.sync || {};
-    return { url: String(cfg.url || '').trim().replace(/\/+$/, ''), anonKey: String(cfg.anonKey || '').trim(), teamCode: String(cfg.teamCode || '').trim(), device: String(cfg.device || '').trim(), autoSubmit: cfg.autoSubmit !== false };
+    return {
+      url: normalizeSupabaseUrl(cfg.url),
+      rawUrl: String(cfg.url || '').trim(),
+      anonKey: String(cfg.anonKey || '').trim(),
+      teamCode: String(cfg.teamCode || '').trim(),
+      device: String(cfg.device || '').trim(),
+      autoSubmit: cfg.autoSubmit !== false
+    };
   }
   function syncReady() {
     const c = syncConfig();
@@ -964,6 +990,12 @@ grant select, insert, update on public.completed_runs to anon;`;
   }
   function saveSyncSettings() {
     const before = syncConfig();
+    const typed = $('syncUrlInput').value.trim();
+    if (typed) {
+      const resolved = normalizeSupabaseUrl(typed);
+      if (!resolved) { showToast('That does not look like a project URL. It should look like https://yourproject.supabase.co'); return false; }
+      $('syncUrlInput').value = resolved;
+    }
     state.settings.sync = {
       url: $('syncUrlInput').value.trim(), anonKey: $('syncKeyInput').value.trim(),
       teamCode: $('syncTeamInput').value.trim(), device: $('syncDeviceInput').value.trim(),
@@ -974,8 +1006,9 @@ grant select, insert, update on public.completed_runs to anon;`;
       cloudRuns = null; cloudStatus = 'idle'; cloudError = '';
       renderCompletedJobs();
     }
-    saveState(); renderSyncBadge();
+    saveState(); renderSyncBadge(); renderSyncSettings();
     if (syncReady()) fetchCompletedRuns({ quiet: true });
+    return true;
   }
   function renderSyncSettings() {
     const c = syncConfig();
@@ -983,7 +1016,11 @@ grant select, insert, update on public.completed_runs to anon;`;
     Object.keys(map).forEach(id => { const el = $(id); if (el && document.activeElement !== el) el.value = map[id]; });
     const auto = $('syncAutoInput'); if (auto) auto.checked = c.autoSubmit;
     const state$ = $('syncStateLine');
-    if (state$) state$.textContent = syncReady() ? 'Configured. Completed runs submit automatically.' : 'Not configured yet — follow the setup steps on the Completed jobs screen.';
+    if (state$) {
+      state$.textContent = syncReady()
+        ? `Connected to ${c.url} — completed runs submit automatically.`
+        : 'Not configured yet — follow the setup steps on the Completed jobs screen.';
+    }
   }
 
   function defaultTemplateName(base) { return String(base || 'Master list').replace(/\.[^.]+$/, '').trim() || 'Master list'; }
@@ -1125,7 +1162,11 @@ grant select, insert, update on public.completed_runs to anon;`;
     ['libraryNewButton','libraryEmptyNew'].forEach(id=>$(id).addEventListener('click',()=>openListDialog()));
     $('listForm').addEventListener('submit',onListFormSubmit);
     $('finishRouteButton').addEventListener('click',openCompleteDialog);
-    $('saveSyncButton').addEventListener('click',()=>{saveSyncSettings();showToast('Sync settings saved.');});
+    $('saveSyncButton').addEventListener('click',()=>{
+      // saveSyncSettings returns false when the URL cannot be understood, in
+      // which case it has already explained why.
+      if (saveSyncSettings() !== false) showToast('Sync settings saved.');
+    });
     $('testSyncButton').addEventListener('click',testSync);
     $('refreshCompletedButton').addEventListener('click',()=>fetchCompletedRuns());
     $('exportCompletedButton').addEventListener('click',downloadAllCloudCSV);
