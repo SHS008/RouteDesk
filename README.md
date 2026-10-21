@@ -65,6 +65,24 @@ Address aliases include `address`, `full_address`, `stop_address`, `location`, a
 
 CSV exports are UTF-8 with a byte-order mark to improve compatibility with Excel. Stop completion timestamps are stored as ISO 8601 UTC values and displayed in the device's local time zone.
 
+## Releasing an update
+
+The service worker serves the app shell network-first, so a redeployed file is
+picked up on the next load rather than being pinned to the first cached copy.
+Installed copies also check for a new version when the app regains focus and
+once an hour, then reload once when the update takes control.
+
+When you change `index.html`, `app.js`, or `styles.css`:
+
+1. Bump `CACHE_VERSION` in `sw.js` (for example `v2` → `v3`). This lets the
+   activate step clear old precache entries deterministically.
+2. Deploy the files.
+3. A driver with the app already installed gets the new build on their next
+   load, or within an hour without reopening it.
+
+Stored routes and settings live in `localStorage` and are not touched by a
+service-worker update, so an update does not clear anyone's route data.
+
 ## Files
 
 - `index.html` — app interface
