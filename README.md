@@ -1,6 +1,20 @@
-# RouteDesk
+# RouteDesk V1.1
 
 **A $0-first, local-first route and service log PWA for small delivery/service teams.** RouteDesk is a static browser app: no account, database, API key, subscription, or server-side code is required.
+
+## What's new in V1.1
+
+- **Master lists** — upload a stop list once and reuse it forever. The `Master lists`
+  screen keeps every list you have uploaded; a run is a copy, so drivers' notes and
+  skip reasons never change the saved list.
+- **Start, finish, and restart runs** — `Finish route` archives the run to
+  *Past routes* with its full service log, then offers to start a fresh run of the
+  same stops with serviced/skipped/notes/timestamps cleared. Past runs can be
+  restarted from the Routes screen at any time.
+- **Grouped navigation** — `Open next N pending stops` sends the next group of
+  unclosed stops to Google Maps in one trip instead of one stop at a time.
+- **Copy mode** — set `When a driver taps Navigate` to *Copy the address* to stay
+  inside RouteDesk instead of handing off to another app (see the iOS note below).
 
 ## What it does
 
@@ -11,6 +25,35 @@
 - Exports an Excel-compatible UTF-8 CSV service log, or a JSON route package that can carry the full route and stop outcomes between devices.
 - Opens one stop at a time in Google Maps, Apple Maps, or Waze.
 - Can be installed as a PWA and caches the app shell for later offline access after the first visit.
+
+## Reusing a route
+
+1. Open **Master lists** and either **New master list**, or **Import CSV** to upload a
+   spreadsheet. Uploading a CSV while creating a run also saves the list automatically.
+2. Tap **Start run**. That copies the stops into today's route and opens it on **Today**.
+3. Work the route, then tap **Finish route**. Choose:
+   - **Mark completed & start a fresh run** — archives this run to *Past routes* and
+     immediately opens a clean copy of the same stops.
+   - **Mark completed only** — archives the run and leaves nothing open.
+
+The master list itself is never modified by a run. Delete a list and its past runs
+stay in the service log.
+
+## iPhone navigation note
+
+iOS shows its own “Open in Google Maps?” confirmation whenever a web app hands a
+link off to another app. That dialog belongs to iOS, not RouteDesk, and no web page
+can suppress it. Three options:
+
+- **Apple Maps** opens without the confirmation, because it is the system app.
+- **Copy the address** (Settings → When a driver taps Navigate) copies the stop
+  address to the clipboard so the driver pastes it into whichever app they prefer.
+- Turn the prompt off in Google Maps: **Google Maps → Settings → Default apps →
+  Browser → Safari**, or long-press the “Open” button and pick “Open in app”.
+
+Google Maps accepts about three intermediate stops per link, so `Open next N pending
+stops` works through a long route in groups. Apple Maps and Waze links carry only a
+single destination, so those open one stop at a time.
 
 ## Important free-mode limits
 
@@ -86,6 +129,7 @@ service-worker update, so an update does not clear anyone's route data.
 ## Files
 
 - `index.html` — app interface
+- Master lists, runs, and past routes are all stored in the same browser workspace
 - `styles.css` — responsive mobile/desktop layout
 - `app.js` — local storage, route and stop operations, CSV/JSON import-export, and map links
 - `manifest.webmanifest`, `icon.svg`, `icon-192.png`, `icon-512.png`, `apple-touch-icon.png`, `sw.js` — PWA metadata, install icons, and offline app-shell cache

@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const STORAGE_KEY = 'routedesk-free-workspace-v1';
-  const APP_VERSION = '1.0';
+  const APP_VERSION = '1.1';
   const $ = (id) => document.getElementById(id);
   const todayISO = () => {
     const d = new Date();
@@ -10,9 +10,16 @@
   const uid = () => (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : `rd-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
   const freshState = () => ({
     version: APP_VERSION,
+    templates: [],
     routes: [],
     activeRouteId: null,
-    settings: { defaultDriver: 'Driver 1', navigation: 'google', noticeDismissed: false }
+    settings: {
+      defaultDriver: 'Driver 1',
+      navigation: 'google',
+      navMode: 'app',        // 'app' opens a map app, 'copy' copies the address
+      tripStops: 'auto',     // stops per navigation trip: auto | 3 | 5 | 9
+      noticeDismissed: false
+    }
   });
   let state = loadState();
   let screen = 'today';
@@ -30,13 +37,26 @@
       if (!raw) return freshState();
       const parsed = JSON.parse(raw);
       if (!parsed || !Array.isArray(parsed.routes)) return freshState();
+      const legacy = !Array.isArray(parsed.templates);
       parsed.settings = Object.assign(freshState().settings, parsed.settings || {});
-      parsed.routes = parsed.routes.map(normalizeRoute);
+      parsed.routes = Array.isArray(parsed.routes) ? parsed.routes.map(normalizeRoute) : [];
+      parsed.templates = Array.isArray(parsed.templates) ? parsed.templates.map(normalizeTemplate) : [];
+      if (legacy) {
+        // First open after upgrading: persist the migrated shape so route data is
+        // not re-normalized on every load, and stamp the new version.
+        parsed.version = APP_VERSION;
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed)); } catch (_) {}
+      }
       return parsed;
     } catch (_) { return freshState(); }
   }
   function normalizeRoute(route) {
-    const safe = Object.assign({ id: uid(), name: 'Untitled route', date: todayISO(), driver: 'Driver 1', status: 'planned', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), stops: [] }, route || {});
+    const safe = Object.assign({ id: uid(), name: 'Untitled route', date: todayISO(), driver: 'Driver 1', status: 'planned', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), startedAt: null, completedAt: null, templateId: null, stops: [] }, route || {});
+    safe.stops = Array.isArray(safe.stops) ? safe.stops.map(normalizeStop) : [];
+    return safe;
+  }
+  function normalizeTemplate(template) {
+    const safe = Object.assign({ id: uid(), name: 'Untitled list', driver: '', notes: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), lastRunAt: null, stops: [] }, template || {});
     safe.stops = Array.isArray(safe.stops) ? safe.stops.map(normalizeStop) : [];
     return safe;
   }
@@ -97,7 +117,7 @@
     screen = next;
     document.querySelectorAll('.screen').forEach(el => el.classList.toggle('active', el.id === `screen-${next}`));
     document.querySelectorAll('[data-screen]').forEach(el => el.classList.toggle('active', el.dataset.screen === next));
-    const labels = {today:'Today',routes:'Routes',reports:'Service log',settings:'Settings'};
+    const labels = {today:'Today',library:'Master lists',routes:'Routes',reports:'Service log',settings:'Settings'};
     $('screenCrumb').textContent = labels[next] || 'Today';
     render();
     window.scrollTo({top:0,behavior:'smooth'});
@@ -106,6 +126,7 @@
     $('headerDate').textContent = new Date().toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
     $('navTodayCount').textContent = String(state.routes.filter(r => r.date === todayISO() && r.status !== 'complete').length);
     renderToday();
+    renderLibrary();
     renderRoutes();
     renderReports();
     renderSettings();
@@ -133,8 +154,10 @@
     $('routeOriginSummary').textContent = firstAddress;
     $('sequenceNote').innerHTML = route.orderMethod === 'Approximate straight-line distance' ? '<span class="note-icon">↕</span><span>Approximate straight-line order is active. It is not road-time or traffic-aware. Use the arrows to adjust stops.</span>' : route.orderMethod === 'Manual reorder' ? '<span class="note-icon">↕</span><span>Stops were manually reordered. Use the arrows to keep adjusting the sequence.</span>' : '<span class="note-icon">↕</span><span>Imported order is preserved. Use the arrows to reorder, or include <code>lat</code>/<code>lon</code> columns for an approximate distance sort.</span>';
     $('routeStatusDot').className = `route-status-dot ${route.status === 'active' ? 'active' : route.status === 'complete' ? 'complete' : ''}`;
-    $('startRouteButton').textContent = route.status === 'active' ? 'Route in progress' : route.status === 'complete' ? 'Route completed' : 'Start route';
+    $('startRouteButton').textContent = route.status === 'complete' ? 'Route completed' : 'Start route';
     $('startRouteButton').disabled = route.status === 'complete';
+    // Once a run is under way the explicit Finish route button covers the action.
+    $('startRouteButton').hidden = route.status !== 'planned';
     const c = counts(route);
     $('summaryTotal').textContent = c.total;
     $('summaryPending').textContent = `${c.pending} pending`;
@@ -155,7 +178,14 @@
     const allCoords = route.stops.length > 1 && route.stops.every(hasValidCoordinates);
     $('approxOptimizeButton').disabled = !allCoords || route.stops.length < 3;
     $('approxOptimizeButton').title = allCoords ? 'Approximate order by straight-line distance; not traffic-aware.' : 'Requires latitude and longitude for every stop. This app does not geocode addresses.';
-    if (route.status !== 'complete' && c.pending === 0 && route.stops.length > 0) $('startRouteButton').textContent = 'Complete route';
+    const finish=$('finishRouteButton');
+    if (finish) { finish.hidden = route.status === 'complete' || route.stops.length === 0; }
+    const routeNav=$('navigateRouteButton');
+    if (routeNav) {
+      routeNav.disabled = c.pending === 0;
+      const cfg=navProviderConfig();
+      routeNav.textContent = cfg.max<=1 ? '↗ Open next stop' : `↗ Open next ${Math.min(cfg.max, c.pending)} pending stops`;
+    }
   }
   function navName(value) {
     return ({google:'Google Maps',apple:'Apple Maps',waze:'Waze'})[value] || 'Google Maps';
@@ -209,18 +239,57 @@
     $('navigateNextButton').dataset.stopId = next.id;
     $('serviceNextButton').dataset.stopId = next.id;
   }
+  function routeCard(route) {
+    const c = counts(route); const pct = c.total ? Math.round((c.serviced+c.skipped)/c.total*100) : 0;
+    const badge = route.status === 'complete' ? 'complete' : route.status === 'active' ? 'active' : 'planned';
+    const label = route.status === 'complete' ? 'Complete' : route.status === 'active' ? 'In progress' : 'Planned';
+    const fromList = route.templateId ? state.templates.find(t => t.id === route.templateId) : null;
+    const source = fromList ? `<span class="list-tag">▦ ${esc(fromList.name)}</span>` : '';
+    const restart = route.status === 'complete' ? `<button class="button button-quiet" data-restart-route="${esc(route.id)}">↺ Restart</button>` : '';
+    return `<article class="route-list-card" data-open-route="${esc(route.id)}"><div class="route-card-top"><div><span class="badge badge-${badge}">${label}</span><h3>${esc(route.name)}</h3><div class="route-card-meta">${esc(prettyDate(route.date))} · ${esc(route.driver||'Unassigned')} · ${c.total} stops</div>${source}</div><button class="icon-button" data-route-card-menu="${esc(route.id)}" aria-label="Route actions">•••</button></div><div class="route-card-bottom"><div class="route-mini-progress"><div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div><span>${pct}% closed</span></div><div class="route-card-buttons">${restart}<button class="button button-quiet" data-open-route="${esc(route.id)}">Open route</button><button class="button button-quiet" data-route-card-export="${esc(route.id)}">Export</button></div></div></article>`;
+  }
+  function routeSection(title, note, routes) {
+    const sorted = [...routes].sort((a,b) => (b.date||'').localeCompare(a.date||'') || (b.updatedAt||'').localeCompare(a.updatedAt||''));
+    const body = sorted.length
+      ? `<div class="routes-grid">${sorted.map(routeCard).join('')}</div>`
+      : `<div class="route-section-empty">${esc(note)}</div>`;
+    return `<div class="route-section-head"><div><p class="eyebrow">${esc(title)}</p></div><span class="route-section-count">${sorted.length}</span></div>${body}`;
+  }
   function renderRoutes() {
-    const list = $('routesList');
-    const empty = $('routesEmpty');
+    const list = $('routesList'); const empty = $('routesEmpty');
     if (!list) return;
     if (!state.routes.length) { list.innerHTML=''; empty.hidden=false; return; }
     empty.hidden=true;
-    const sorted = [...state.routes].sort((a,b) => (b.date||'').localeCompare(a.date||'') || (b.updatedAt||'').localeCompare(a.updatedAt||''));
-    list.innerHTML = sorted.map(route => {
-      const c = counts(route); const pct = c.total ? Math.round((c.serviced+c.skipped)/c.total*100) : 0;
-      const badge = route.status === 'complete' ? 'complete' : route.status === 'active' ? 'active' : 'planned';
-      const label = route.status === 'complete' ? 'Complete' : route.status === 'active' ? 'In progress' : 'Planned';
-      return `<article class="route-list-card" data-open-route="${esc(route.id)}"><div class="route-card-top"><div><span class="badge badge-${badge}">${label}</span><h3>${esc(route.name)}</h3><div class="route-card-meta">${esc(prettyDate(route.date))} · ${esc(route.driver||'Unassigned')} · ${c.total} stops</div></div><button class="icon-button" data-route-card-menu="${esc(route.id)}" aria-label="Route actions">•••</button></div><div class="route-card-bottom"><div class="route-mini-progress"><div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div><span>${pct}% closed</span></div><div class="route-card-buttons"><button class="button button-quiet" data-open-route="${esc(route.id)}">Open route</button><button class="button button-quiet" data-route-card-export="${esc(route.id)}">Export</button></div></div></article>`;
+    const current = state.routes.filter(r => r.status !== 'complete');
+    const past = state.routes.filter(r => r.status === 'complete');
+    list.innerHTML =
+      routeSection('IN PROGRESS & UPCOMING', 'No open runs. Start one from a master list.', current) +
+      routeSection('PAST ROUTES', 'Completed runs are kept here for reporting. Restart one to drive the same stops again.', past);
+  }
+  function renderLibrary() {
+    const list = $('libraryList'); const empty = $('libraryEmpty');
+    if (!list) return;
+    if (!state.templates.length) { list.innerHTML=''; empty.hidden=false; return; }
+    empty.hidden=true;
+    const sorted = [...state.templates].sort((a,b) => (a.name||'').localeCompare(b.name||''));
+    list.innerHTML = sorted.map(t => {
+      const runs = state.routes.filter(r => r.templateId === t.id);
+      const lastRun = runs.map(r => r.date).sort().pop();
+      const openRun = runs.filter(r => r.status !== 'complete').length;
+      return `<article class="list-card">
+        <div class="list-card-top">
+          <div><h3>${esc(t.name)}</h3><div class="list-card-meta">${t.stops.length} stops${t.driver ? ` · ${esc(t.driver)}` : ''}</div></div>
+          <span class="list-count">${t.stops.length}</span>
+        </div>
+        <div class="list-card-foot">
+          <span class="list-last">${lastRun ? `Last run ${esc(prettyDate(lastRun))}` : 'Never run yet'}${openRun ? ' · open run' : ''}</span>
+          <div class="list-card-buttons">
+            <button class="button button-primary" data-start-template="${esc(t.id)}">▶ Start run</button>
+            <button class="button button-quiet" data-edit-template="${esc(t.id)}">Edit</button>
+            <button class="button button-quiet danger-text" data-delete-template="${esc(t.id)}">Delete</button>
+          </div>
+        </div>
+      </article>`;
     }).join('');
   }
   function renderReports() {
@@ -239,16 +308,19 @@
     }).join('');
   }
   function renderSettings() {
-    const driver=$('defaultDriverInput'), nav=$('navSelect');
+    const driver=$('defaultDriverInput'), nav=$('navSelect'), mode=$('navModeSelect'), trip=$('tripStopsSelect');
     if (driver && document.activeElement !== driver) driver.value=state.settings.defaultDriver||'Driver 1';
     if (nav && document.activeElement !== nav) nav.value=state.settings.navigation||'google';
+    if (mode && document.activeElement !== mode) mode.value=state.settings.navMode||'app';
+    if (trip && document.activeElement !== trip) trip.value=state.settings.tripStops||'auto';
+    const version=$('appVersion'); if(version) version.textContent=`RouteDesk V${APP_VERSION}`;
   }
   function setActiveRoute(id) {
     if (!state.routes.some(r=>r.id===id)) return;
     state.activeRouteId=id; saveState(); setScreen('today');
   }
-  function createRoute({name,driver,date,stops,startAddress=''}) {
-    const route=normalizeRoute({id:uid(),name:name||'Untitled route',driver:driver||state.settings.defaultDriver||'Driver 1',date:date||todayISO(),startAddress,status:'planned',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),stops:stops||[]});
+  function createRoute({name,driver,date,stops,startAddress='',templateId=null}) {
+    const route=normalizeRoute({id:uid(),name:name||'Untitled route',driver:driver||state.settings.defaultDriver||'Driver 1',date:date||todayISO(),startAddress,templateId,status:'planned',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),stops:stops||[]});
     state.routes.unshift(route);state.activeRouteId=route.id;saveState();render();setScreen('today');showToast(`${route.stops.length} stops added to ${route.name}.`);return route;
   }
   function parseAddressLines(text) {
@@ -300,6 +372,7 @@
     const date=/^\d{4}-\d{2}-\d{2}$/.test(importedDate)?importedDate:todayISO();
     return {name:importedName||fallbackName||'Imported route',driver:importedDriver||state.settings.defaultDriver,date};
   }
+  let csvTarget = 'run';
   function handleCSVFile(file) {
     if(!file)return;
     const reader=new FileReader();
@@ -308,10 +381,23 @@
         const rows=parseCSV(String(reader.result||''));const stops=csvRowsToStops(rows);
         if(!stops.length){showToast('No addresses found. Add an address column or one address per row.');return;}
         const base=file.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim();
-        createRoute({...csvRouteMetadata(rows,base),stops});
-      }catch(err){console.error(err);showToast('Could not read that CSV file.');}
+        const meta=csvRouteMetadata(rows,base);
+        if(csvTarget==='library'){
+          const {template,updated}=upsertTemplate({name:meta.name||base,driver:meta.driver,stops});
+          saveState();render();setScreen('library');
+          showToast(updated?`Updated master list "${template.name}" — ${template.stops.length} stops.`:`Master list "${template.name}" saved — ${template.stops.length} stops.`);
+          csvTarget='run';
+          return;
+        }
+        // A run started from an upload also saves the list, so it can be reused
+        // without uploading the spreadsheet again.
+        const {template,updated}=upsertTemplate({name:meta.name||base,driver:meta.driver,stops});
+        createRoute({...meta,templateId:template.id,stops});
+        showToast(updated?`Route created. Master list "${template.name}" refreshed for reuse.`:`Route created. Saved "${template.name}" to master lists for reuse.`);
+        csvTarget='run';
+      }catch(err){console.error(err);showToast('Could not read that CSV file.');csvTarget='run';}
     };
-    reader.onerror=()=>showToast('The file could not be opened.');reader.readAsText(file);
+    reader.onerror=()=>{showToast('The file could not be opened.');csvTarget='run';};reader.readAsText(file);
   }
   function openRouteDialog() {
     $('routeNameInput').value='';$('routeDriverInput').value=state.settings.defaultDriver||'Driver 1';$('routeDateInput').value=todayISO();$('routeStopsInput').value='';openDialog('routeDialog');
@@ -348,9 +434,48 @@
   function startOrCompleteRoute() {
     const route=getActiveRoute();if(!route)return;const c=counts(route);
     if(route.status==='complete')return;
-    if(c.total>0&&c.pending===0){route.status='complete';route.completedAt=new Date().toISOString();showToast('Route completed. Export the service log when ready.');}
-    else {route.status='active';route.startedAt=route.startedAt||new Date().toISOString();showToast('Route started.');}
-    route.updatedAt=new Date().toISOString();saveState();render();
+    if(c.total>0&&c.pending===0){openCompleteDialog();return;}
+    route.status='active';route.startedAt=route.startedAt||new Date().toISOString();
+    route.updatedAt=new Date().toISOString();saveState();render();showToast('Route started.');
+  }
+  function openCompleteDialog() {
+    const route=getActiveRoute();if(!route)return;
+    const c=counts(route);
+    const summary=$('completeSummary');
+    if(summary)summary.textContent=`${route.name} — ${c.serviced} serviced, ${c.skipped} skipped, ${c.pending} still pending.`;
+    openDialog('completeDialog');
+  }
+  function freshRunFrom(route) {
+    const copy=normalizeRoute({
+      id:uid(),name:route.name,driver:route.driver,date:todayISO(),
+      templateId:route.templateId||null,status:'planned',orderMethod:'',
+      stops:route.stops.map(s=>normalizeStop({id:uid(),name:s.name,address:s.address,lat:s.lat,lon:s.lon,notes:s.notes,status:'pending',completedAt:null,skipReason:''}))
+    });
+    state.routes.unshift(copy);
+    if(copy.templateId){const t=state.templates.find(x=>x.id===copy.templateId);if(t)t.lastRunAt=new Date().toISOString();}
+    return copy;
+  }
+  function finishRoute(mode) {
+    const route=getActiveRoute();if(!route)return;
+    const now=new Date().toISOString();
+    route.status='complete';route.completedAt=now;route.updatedAt=now;
+    closeDialog('completeDialog');
+    if(mode==='restart'){
+      const next=freshRunFrom(route);
+      state.activeRouteId=next.id;saveState();render();setScreen('today');
+      showToast('Run archived to past routes. A fresh run is ready.');
+      return;
+    }
+    const open=state.routes.filter(r=>r.status!=='complete');
+    state.activeRouteId=open.length?open[0].id:null;
+    saveState();render();setScreen('routes');
+    showToast('Run archived to past routes. Its service log is unchanged.');
+  }
+  function restartRoute(routeId) {
+    const route=getRoute(routeId);if(!route)return;
+    const next=freshRunFrom(route);
+    state.activeRouteId=next.id;saveState();render();setScreen('today');
+    showToast('Restarted. Previous run is kept in past routes.');
   }
   function moveStop(stopId,delta) {
     const route=getActiveRoute();if(!route)return;const i=route.stops.findIndex(s=>s.id===stopId);const j=i+delta;if(i<0||j<0||j>=route.stops.length)return;
@@ -377,10 +502,81 @@
       default: return `https://www.google.com/maps/dir/?api=1&destination=${encoded}&travelmode=driving`;
     }
   }
+  async function copyText(text, message) {
+    try { await navigator.clipboard.writeText(text); showToast(message); return; }
+    catch (_) {}
+    const ta=document.createElement('textarea');ta.value=text;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();
+    try { document.execCommand('copy'); showToast(message); } catch (_) { showToast('Could not copy automatically. Select the address to copy it.'); }
+    ta.remove();
+  }
+  // Each map app accepts a limited number of stops per link, so a long route is
+  // driven in groups. Google documents 3 waypoints in mobile browsers (four
+  // points including the destination). Apple Maps joins repeated daddr values
+  // into one comma-separated destination, so it only takes a single stop, and
+  // Waze likewise takes one. Both therefore navigate stop by stop.
+  function navProviderConfig() {
+    const provider = state.settings.navigation || 'google';
+    const ceiling = { google: 4, apple: 1, waze: 1 }[provider] || 4;
+    let max = ceiling;
+    const pref = state.settings.tripStops || 'auto';
+    if (pref !== 'auto') { const n = parseInt(pref, 10); if (n > 0) max = Math.min(ceiling, n); }
+    return { provider, max };
+  }
+  function stopTarget(stop) {
+    return (stop.lat !== null && stop.lon !== null && stop.lat !== '' && stop.lon !== '') ? `${stop.lat},${stop.lon}` : stop.address;
+  }
+  function routeNavUrl(stops) {
+    const { provider, max } = navProviderConfig();
+    let chunk = stops.slice(0, max);
+    if (!chunk.length) return null;
+    if (provider === 'waze') {
+      return { url: `https://waze.com/ul?q=${encodeURIComponent(stopTarget(chunk[0]))}&navigate=yes`, count: 1, total: stops.length };
+    }
+    if (provider === 'apple') {
+      let parts = chunk.map(s => `daddr=${encodeURIComponent(stopTarget(s))}`);
+      const build = () => `https://maps.apple.com/?${parts.join('&')}&dirflg=d`;
+      while (build().length > 1900 && parts.length > 1) parts.pop();
+      return { url: build(), count: parts.length, total: stops.length };
+    }
+    let waypoints = chunk.slice(0, -1);
+    const destination = chunk[chunk.length - 1];
+    const build = () => {
+      const base = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(stopTarget(destination))}&travelmode=driving`;
+      return waypoints.length ? `${base}&waypoints=${waypoints.map(s => encodeURIComponent(stopTarget(s))).join('%7C')}` : base;
+    };
+    while (build().length > 1900 && waypoints.length > 1) waypoints.pop();
+    return { url: build(), count: waypoints.length + 1, total: stops.length };
+  }
   function openNavigation(stopId) {
     const route=getActiveRoute();const stop=route?.stops.find(s=>s.id===stopId);if(!stop||!stop.address){showToast('Add an address before opening navigation.');return;}
     if(/demo only|replace before navigation/i.test(stop.address)){showToast('Replace this demo address before navigating.');return;}
+    if(state.settings.navMode==='copy'){copyText(stop.address,'Address copied. Paste it into your navigation app.');return;}
     const win=window.open(navUrl(stop),'_blank','noopener,noreferrer');if(!win)showToast('Navigation link is ready. Allow pop-ups to open it.');
+  }
+  function openNextStops() {
+    const route=getActiveRoute();if(!route)return;
+    const pending=route.stops.filter(s=>s.status==='pending'&&s.address&&!/demo only|replace before navigation/i.test(s.address));
+    if(!pending.length){showToast('No pending stops with an address to navigate.');return;}
+    if(state.settings.navMode==='copy'){
+      copyText(pending.slice(0,5).map(s=>s.address).join('\n'),'Next addresses copied. Paste them into your navigation app.');
+      return;
+    }
+    const trip=routeNavUrl(pending);
+    if(!trip){showToast('Nothing to navigate yet.');return;}
+    const win=window.open(trip.url,'_blank','noopener,noreferrer');
+    if(!win){showToast('Navigation link is ready. Allow pop-ups to open it.');return;}
+    if(trip.total>trip.count)showToast(`Opening ${trip.count} of ${trip.total} pending stops in ${navName(state.settings.navigation)}. Tap again after you finish this group.`);
+    else showToast(`Opening ${trip.count} stop${trip.count===1?'':'s'} in ${navName(state.settings.navigation)}.`);
+  }
+  function openWholeRoute() {
+    const route=getActiveRoute();if(!route)return;
+    const pending=route.stops.filter(s=>s.status==='pending'&&s.address);
+    if(!pending.length){showToast('Every stop is already closed.');return;}
+    if(state.settings.navMode==='copy'){copyText(route.stops.map(s=>s.address).filter(Boolean).join('\n'),'Full stop list copied.');return;}
+    const trip=routeNavUrl(pending);
+    const win=window.open(trip.url,'_blank','noopener,noreferrer');
+    if(!win)showToast('Navigation link is ready. Allow pop-ups to open it.');
+    else if(trip.total>trip.count)showToast(`${navName(state.settings.navigation)} accepts ${trip.count} stops per trip. Sent the next ${trip.count}; ${trip.total-trip.count} still pending.`);
   }
   function routeToCSV(route) {
     const headers=['route_name','route_date','driver','sequence','stop_name','address','latitude','longitude','status','completed_at','skip_reason','notes'];
@@ -438,14 +634,105 @@
     ].map(s=>normalizeStop({...s,id:uid()}));
     createRoute({name:'Demo route — replace with your list',driver:state.settings.defaultDriver,date:todayISO(),stops});
   }
+  function defaultTemplateName(base) { return String(base || 'Master list').replace(/\.[^.]+$/, '').trim() || 'Master list'; }
+  function templateStops(stops) {
+    return (stops || []).map(s => normalizeStop({ id: uid(), name: s.name || '', address: s.address || '', lat: s.lat ?? null, lon: s.lon ?? null, notes: s.notes || '', status: 'pending', completedAt: null, skipReason: '' }));
+  }
+  function upsertTemplate({ name, driver, stops, notes = '' }) {
+    const clean = defaultTemplateName(name);
+    const existing = state.templates.find(t => t.name.toLowerCase() === clean.toLowerCase());
+    const cleanStops = templateStops(stops);
+    if (existing) {
+      existing.stops = cleanStops;
+      existing.driver = driver || existing.driver || '';
+      existing.updatedAt = new Date().toISOString();
+      return { template: existing, updated: true };
+    }
+    const template = normalizeTemplate({ id: uid(), name: clean, driver: driver || '', notes, stops: cleanStops });
+    state.templates.unshift(template);
+    return { template, updated: false };
+  }
+  function startRunFromTemplate(templateId) {
+    const template = state.templates.find(t => t.id === templateId);
+    if (!template) return;
+    if (!template.stops.length) { showToast('That master list has no stops. Add or import stops first.'); return; }
+    const openRun = state.routes.find(r => r.templateId === template.id && r.status !== 'complete');
+    if (openRun && !window.confirm(`"${template.name}" already has an open run from ${prettyDate(openRun.date)}. Start another run anyway?`)) return;
+    const route = normalizeRoute({
+      id: uid(), name: template.name, driver: template.driver || state.settings.defaultDriver, date: todayISO(),
+      templateId: template.id, status: 'planned',
+      stops: template.stops.map(s => normalizeStop({ id: uid(), name: s.name, address: s.address, lat: s.lat, lon: s.lon, notes: s.notes, status: 'pending', completedAt: null, skipReason: '' }))
+    });
+    template.lastRunAt = new Date().toISOString();
+    state.routes.unshift(route); state.activeRouteId = route.id; saveState(); render(); setScreen('today');
+    showToast(`Run started from "${template.name}" — ${route.stops.length} stops.`);
+  }
+  function deleteTemplate(templateId) {
+    const template = state.templates.find(t => t.id === templateId);
+    if (!template) return;
+    const runs = state.routes.filter(r => r.templateId === template.id).length;
+    const warning = runs ? `\n\n${runs} saved run${runs === 1 ? '' : 's'} will stay in past routes.` : '';
+    if (!window.confirm(`Delete the master list "${template.name}"?${warning}`)) return;
+    state.templates = state.templates.filter(t => t.id !== templateId);
+    state.routes.forEach(r => { if (r.templateId === templateId) r.templateId = null; });
+    saveState(); render(); showToast('Master list deleted.');
+  }
+  function saveRouteAsTemplate(routeId) {
+    const route = getRoute(routeId);
+    if (!route) return;
+    const { template, updated } = upsertTemplate({ name: route.name, driver: route.driver, stops: route.stops });
+    route.templateId = template.id;
+    saveState(); render();
+    showToast(updated ? `Master list "${template.name}" refreshed from this route.` : `Saved "${template.name}" to master lists.`);
+  }
+  function openListDialog(templateId = null) {
+    const form = $('listForm');
+    form.dataset.editId = templateId || '';
+    const template = templateId ? state.templates.find(t => t.id === templateId) : null;
+    $('listDialog').querySelector('.eyebrow').textContent = template ? 'EDIT MASTER LIST' : 'NEW MASTER LIST';
+    $('listDialog').querySelector('h2').textContent = template ? 'Edit master list' : 'New master list';
+    $('listNameInput').value = template ? template.name : '';
+    $('listDriverInput').value = template ? (template.driver || '') : (state.settings.defaultDriver || '');
+    $('listStopsInput').value = '';
+    $('listStopsInput').placeholder = template
+      ? `Leave blank to keep the ${template.stops.length} saved stops, or paste a replacement list.`
+      : 'Paste addresses here, one per line.';
+    $('listForm').querySelector('button[type="submit"]').textContent = template ? 'Save changes' : 'Save master list';
+    openDialog('listDialog');
+  }
+  function onListFormSubmit(event) {
+    event.preventDefault();
+    const editId = $('listForm').dataset.editId;
+    const name = $('listNameInput').value.trim() || 'Master list';
+    const driver = $('listDriverInput').value.trim();
+    const pasted = parseAddressLines($('listStopsInput').value);
+    if (editId) {
+      const template = state.templates.find(t => t.id === editId);
+      if (!template) return;
+      template.name = name; template.driver = driver; template.updatedAt = new Date().toISOString();
+      if (pasted.length) template.stops = templateStops(pasted);
+      saveState(); closeDialog('listDialog'); render();
+      showToast(pasted.length ? `Master list updated — ${pasted.length} stops.` : 'Master list saved.');
+      return;
+    }
+    if (!pasted.length) { showToast('Add at least one address, or import a CSV.'); return; }
+    const { template, updated } = upsertTemplate({ name, driver, stops: pasted });
+    saveState(); closeDialog('listDialog'); render(); setScreen('library');
+    showToast(updated ? `Updated the existing master list "${template.name}".` : `Master list "${template.name}" saved — ${template.stops.length} stops.`);
+  }
   function handleClick(event) {
     const navButton=event.target.closest('[data-screen]');if(navButton){setScreen(navButton.dataset.screen);return;}
     const close=event.target.closest('[data-close-dialog]');if(close){closeDialog(close.dataset.closeDialog);return;}
-    const routeAction=event.target.closest('[data-route-action]');if(routeAction){const route=getActiveRoute();if(!route)return;const action=routeAction.dataset.routeAction;if(action==='export-json')shareRoute(route);if(action==='export-csv')exportRouteCSV(route);if(action==='edit'){openRouteEdit(route);}if(action==='delete')deleteRoute(route.id);$('routeMenu').hidden=true;return;}
+    const routeAction=event.target.closest('[data-route-action]');if(routeAction){const route=getActiveRoute();if(!route)return;const action=routeAction.dataset.routeAction;if(action==='export-json')shareRoute(route);if(action==='export-csv')exportRouteCSV(route);if(action==='edit'){openRouteEdit(route);}if(action==='save-template'){saveRouteAsTemplate(route.id);}if(action==='delete')deleteRoute(route.id);$('routeMenu').hidden=true;return;}
     const cardMenu=event.target.closest('[data-route-card-menu]');if(cardMenu){event.stopPropagation();const route=getRoute(cardMenu.dataset.routeCardMenu);if(route)shareRoute(route);return;}
     const cardExport=event.target.closest('[data-route-card-export]');if(cardExport){event.stopPropagation();exportRouteCSV(getRoute(cardExport.dataset.routeCardExport));return;}
     const reportExport=event.target.closest('[data-report-export]');if(reportExport){exportRouteCSV(getRoute(reportExport.dataset.reportExport));return;}
     const openRoute=event.target.closest('[data-open-route]');if(openRoute){setActiveRoute(openRoute.dataset.openRoute);return;}
+    const startTemplate=event.target.closest('[data-start-template]');if(startTemplate){startRunFromTemplate(startTemplate.dataset.startTemplate);return;}
+    const editTemplate=event.target.closest('[data-edit-template]');if(editTemplate){openListDialog(editTemplate.dataset.editTemplate);return;}
+    const delTemplate=event.target.closest('[data-delete-template]');if(delTemplate){deleteTemplate(delTemplate.dataset.deleteTemplate);return;}
+    const restart=event.target.closest('[data-restart-route]');if(restart){restartRoute(restart.dataset.restartRoute);return;}
+    const completeMode=event.target.closest('[data-complete-mode]');if(completeMode){finishRoute(completeMode.dataset.completeMode);return;}
     const filter=event.target.closest('[data-filter]');if(filter){stopFilter=filter.dataset.filter;document.querySelectorAll('.filter-pill').forEach(b=>b.classList.toggle('active',b===filter));renderStops(getActiveRoute());return;}
     const rowAction=event.target.closest('[data-action]');if(rowAction){const id=rowAction.dataset.id;const route=getActiveRoute();const stop=route?.stops.find(s=>s.id===id);if(!stop)return;switch(rowAction.dataset.action){case 'service':changeStopStatus(id,'serviced');break;case 'skip':openSkipDialog(stop);break;case 'undo':changeStopStatus(id,'pending');break;case 'edit':openStopDialog(stop);break;case 'up':moveStop(id,-1);break;case 'down':moveStop(id,1);break;case 'navigate':openNavigation(id);break;}return;}
   }
@@ -468,13 +755,22 @@
   }
   function handleRouteMenu(event){const menu=$('routeMenu');if(event.target.closest('#routeMoreButton')){menu.hidden=!menu.hidden;return;}if(!event.target.closest('.menu-wrap'))menu.hidden=true;}
   function saveSettings() {
-    state.settings.defaultDriver=$('defaultDriverInput').value.trim()||'Driver 1';state.settings.navigation=$('navSelect').value||'google';saveState();render();showToast('Settings saved.');
+    state.settings.defaultDriver=$('defaultDriverInput').value.trim()||'Driver 1';
+    state.settings.navigation=$('navSelect').value||'google';
+    state.settings.navMode=$('navModeSelect').value||'app';
+    state.settings.tripStops=$('tripStopsSelect').value||'auto';
+    saveState();render();showToast('Settings saved.');
   }
   function initEvents() {
     document.addEventListener('click',handleClick);
     document.addEventListener('click',handleRouteMenu);
     $('newRouteButton').addEventListener('click',openRouteDialog);$('routesNewButton').addEventListener('click',openRouteDialog);$('emptyNewRoute').addEventListener('click',openRouteDialog);$('routesEmptyNew').addEventListener('click',openRouteDialog);
-    ['todayImportButton','emptyImport','routesImportButton'].forEach(id=>$(id).addEventListener('click',()=>$('csvInput').click()));
+    ['todayImportButton','emptyImport','routesImportButton'].forEach(id=>$(id).addEventListener('click',()=>{csvTarget='run';$('csvInput').click();}));
+    $('libraryImportButton').addEventListener('click',()=>{csvTarget='library';$('csvInput').click();});
+    ['libraryNewButton','libraryEmptyNew'].forEach(id=>$(id).addEventListener('click',()=>openListDialog()));
+    $('listForm').addEventListener('submit',onListFormSubmit);
+    $('finishRouteButton').addEventListener('click',openCompleteDialog);
+    $('navigateRouteButton').addEventListener('click',openNextStops);
     $('csvInput').addEventListener('change',e=>{handleCSVFile(e.target.files[0]);e.target.value='';});
     ['importPackageButton','importCompletedButton','settingsImportButton'].forEach(id=>$(id).addEventListener('click',()=>$('packageInput').click()));
     $('packageInput').addEventListener('change',e=>{const f=e.target.files[0];if(f){if(f.name.toLowerCase().endsWith('.csv'))handleCSVFile(f);else if(f.name.toLowerCase().endsWith('.json')){if(screen==='settings')importWorkspace(f);else importPackageFile(f);}else showToast('Choose a route JSON package or CSV list.');}e.target.value='';});
