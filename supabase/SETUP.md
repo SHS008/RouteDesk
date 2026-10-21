@@ -17,11 +17,17 @@ Free plan notes: 500 MB database, no automatic backups, and the project **pauses
 
 ## Step 2 — Create the table and its security rules
 
-1. In your project, open **SQL Editor** → **New query**.
-2. Paste the entire contents of [`schema.sql`](./schema.sql) from this folder.
-3. Click **Run**. You should see "Success. No rows returned."
+Easiest path: open RouteDesk → **Completed jobs** → **⧉ Copy setup SQL**.
 
-This creates one table, `completed_runs`, and locks it so that a device can only read and add rows carrying its own team code.
+Then: Supabase → **SQL Editor** → **New query** → paste → **Run**. You should see
+"Success. No rows returned."
+
+The same SQL lives in [`schema.sql`](./schema.sql) if you would rather copy it from the
+repository.
+
+This creates one table, `completed_runs`, and locks it so a device can only read and add
+rows carrying its own team code. **Re-running it later is safe** — it adds any missing
+columns and keeps your existing rows, so it doubles as the upgrade step.
 
 ## Step 3 — Pick a team code
 
@@ -78,3 +84,12 @@ The badge in the top bar reads **Cloud synced** when everything is working, **N 
 | "Could not reach the manager portal" | Project paused (free tier, 7 days idle) | Resume it in the Supabase dashboard |
 | Completed jobs is empty but drivers submitted | Team code differs by a typo or a trailing space | Compare the code character-for-character on both devices |
 | Setup screen keeps appearing | URL, key, or code field is blank | All three are required |
+| "The completed_runs table is missing" | Step 2 was skipped | Copy the setup SQL from the Completed jobs screen and run it |
+| "Your table is out of date" | Installed on V1.2, needs V1.3 columns | Re-run the setup SQL; existing rows are kept |
+
+## Manager review
+
+Open any submitted run → **Review**. The stop-level record is listed with outcomes,
+skip reasons, and driver notes. Add a **Manager note** and press **Save note** — it is
+stamped with the reviewing device name and time, marked ✓ noted in the list, and carried
+into the CSV export. A driver re-submitting the same run cannot overwrite it.

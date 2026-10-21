@@ -2,7 +2,7 @@
   'use strict';
   const STORAGE_KEY = 'routedesk-free-workspace-v1';
   const OUTBOX_KEY = 'routedesk-outbox-v1';
-  const APP_VERSION = '1.2';
+  const APP_VERSION = '1.3';
   const $ = (id) => document.getElementById(id);
   const todayISO = () => {
     const d = new Date();
@@ -653,6 +653,50 @@
   let cloudStatus = 'idle';      // idle | syncing | error | off
   let cloudError = '';
 
+  // The setup SQL is embedded so a manager can wire up the portal from the app
+  // itself, without opening the repository. Keep in step with supabase/schema.sql.
+  const SETUP_SQL = `create table if not exists public.completed_runs (
+  id           text primary key,
+  team_id      text not null,
+  name         text not null default 'Untitled route',
+  route_date   date,
+  driver       text,
+  completed_at timestamptz not null default now(),
+  stop_count   int  not null default 0,
+  serviced     int  not null default 0,
+  skipped      int  not null default 0,
+  device       text,
+  stops        jsonb not null default '[]'::jsonb,
+  created_at   timestamptz not null default now()
+);
+
+create index if not exists completed_runs_team_time
+  on public.completed_runs (team_id, completed_at desc);
+
+alter table public.completed_runs add column if not exists review_note text not null default '';
+alter table public.completed_runs add column if not exists reviewed_at timestamptz;
+alter table public.completed_runs add column if not exists reviewed_by text not null default '';
+
+alter table public.completed_runs enable row level security;
+
+drop policy if exists "team can read its completed runs" on public.completed_runs;
+create policy "team can read its completed runs"
+  on public.completed_runs for select to anon
+  using (team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''));
+
+drop policy if exists "team can submit completed runs" on public.completed_runs;
+create policy "team can submit completed runs"
+  on public.completed_runs for insert to anon
+  with check (team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''));
+
+drop policy if exists "team can resubmit completed runs" on public.completed_runs;
+create policy "team can resubmit completed runs"
+  on public.completed_runs for update to anon
+  using (team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''))
+  with check (team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''));
+
+grant select, insert, update on public.completed_runs to anon;`;
+
   function syncConfig() {
     const cfg = state.settings.sync || {};
     return { url: String(cfg.url || '').trim().replace(/\/+$/, ''), anonKey: String(cfg.anonKey || '').trim(), teamCode: String(cfg.teamCode || '').trim(), device: String(cfg.device || '').trim(), autoSubmit: cfg.autoSubmit !== false };
@@ -723,7 +767,7 @@
           headers: Object.assign(syncHeaders(), { 'Prefer': 'resolution=merge-duplicates,return=representation' }),
           body: JSON.stringify([item.payload])
         });
-        if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 140)}`);
+        if (!res.ok) throw new Error(describeSyncError(res.status, await res.text()));
         sent++;
       } catch (err) {
         item.attempts = (item.attempts || 0) + 1;
@@ -750,7 +794,7 @@
     try {
       const c = syncConfig();
       const res = await fetch(`${c.url}/rest/v1/completed_runs?select=*&team_id=eq.${encodeURIComponent(c.teamCode)}&order=completed_at.desc&limit=500`, { headers: syncHeaders() });
-      if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 140)}`);
+      if (!res.ok) throw new Error(describeSyncError(res.status, await res.text()));
       cloudRuns = await res.json();
       cloudStatus = 'idle'; cloudError = '';
     } catch (err) {
@@ -794,6 +838,53 @@
       else { head.textContent = 'Saved on this device'; sub.textContent = 'No subscription or account'; }
     }
   }
+  // Turn PostgREST failures into something a non-developer can act on.
+  function describeSyncError(status, body) {
+    const text = String(body || '');
+    if (status === 404 || /PGRST205|relation .* does not exist/i.test(text)) {
+      return 'The completed_runs table is missing. Copy the setup SQL from this screen and run it in your Supabase SQL Editor.';
+    }
+    if (/PGRST204|42703|column .* does not exist/i.test(text)) {
+      return 'Your table is out of date. Re-run the setup SQL so the manager review columns are added.';
+    }
+    if (status === 401 || /invalid api key|JWT/i.test(text)) {
+      return 'That anon key was rejected. Copy it again from Project Settings → API → anon public.';
+    }
+    if (status === 403 || /row-level security|42501/i.test(text)) {
+      return 'Blocked by a security rule. Check the team code matches on every device and that the setup SQL ran.';
+    }
+    if (!navigator.onLine) return 'This device is offline. Runs stay queued until it reconnects.';
+    return text.slice(0, 180) || `Request failed (${status}).`;
+  }
+  async function copySetupSql() {
+    copyText(SETUP_SQL, 'Setup SQL copied. Paste it into your Supabase SQL Editor and run it.');
+  }
+  function saveReviewNote(runId) {
+    const row = (cloudRuns || []).find(r => r.id === runId);
+    if (!row) return;
+    const field = $('reviewNoteInput');
+    const note = field ? field.value.trim() : '';
+    const who = syncConfig().device || state.settings.defaultDriver || 'Manager';
+    row.review_note = note;
+    row.reviewed_at = new Date().toISOString();
+    row.reviewed_by = who;
+    renderCompletedJobs();
+    closeDialog('reviewDialog');
+    // Manager notes are written straight back to the row; a driver resubmitting
+    // the same run does not send these fields, so a note is never clobbered.
+    const patch = async () => {
+      const c = syncConfig();
+      const res = await fetch(`${c.url}/rest/v1/completed_runs?id=eq.${encodeURIComponent(runId)}`, {
+        method: 'PATCH',
+        headers: Object.assign(syncHeaders(), { 'Prefer': 'return=minimal' }),
+        body: JSON.stringify({ review_note: note, reviewed_at: row.reviewed_at, reviewed_by: who })
+      });
+      if (!res.ok) throw new Error(describeSyncError(res.status, await res.text()));
+      return true;
+    };
+    patch().then(() => { showToast(note ? 'Review note saved.' : 'Review note cleared.'); fetchCompletedRuns({ quiet: true }); })
+      .catch(err => { showToast(`Note kept on this device only — ${err.message}`); });
+  }
   function renderCompletedJobs() {
     const list = $('completedList'); if (!list) return;
     const empty = $('completedEmpty'); const setup = $('completedSetup');
@@ -807,12 +898,18 @@
     const q = (state.ui && state.ui.completedSearch || '').trim().toLowerCase();
     let rows = cloudRuns || [];
     if (q) rows = rows.filter(r => `${r.name} ${r.driver} ${r.route_date} ${(r.stops || []).map(s => s.address).join(' ')}`.toLowerCase().includes(q));
-    if (cloudRuns === null) { list.innerHTML = '<div class="route-section-empty">Could not load completed jobs. Check the sync settings and retry.</div>'; empty.hidden = true; return; }
+    if (cloudRuns === null) {
+      // Show the specific, actionable reason (missing table, bad key, wrong team
+      // code) rather than a generic failure line.
+      list.innerHTML = `<div class="sync-problem"><strong>Could not load completed jobs.</strong><p>${esc(cloudError || 'Check the sync settings and retry.')}</p><button class="button button-secondary" data-retry-sync="1" type="button">Retry</button></div>`;
+      empty.hidden = true;
+      return;
+    }
     if (!rows.length) { list.innerHTML = ''; empty.hidden = false; }
     else {
       empty.hidden = true;
       list.innerHTML = `<div class="table-scroll"><table class="report-table"><thead><tr><th>ROUTE</th><th>COMPLETED</th><th>DRIVER</th><th>STOPS</th><th>SERV</th><th>SKIP</th><th></th></tr></thead><tbody>${rows.map(r => `
-        <tr><td><div class="table-route-name">${esc(r.name)}</div><div class="table-route-driver">${esc(r.device || '')}</div></td>
+        <tr><td><div class="table-route-name">${esc(r.name)}</div><div class="table-route-driver">${esc(r.device || '')}${r.review_note || r.reviewed_at ? ' · <span class="noted-chip">✓ noted</span>' : ''}</div></td>
         <td>${esc(prettyDate((r.completed_at || '').slice(0, 10), { month: 'short', day: 'numeric', year: 'numeric' }))}</td>
         <td>${esc(r.driver || '—')}</td><td>${esc(r.stop_count)}</td><td>${esc(r.serviced)}</td><td>${esc(r.skipped)}</td>
         <td class="nowrap"><button class="mini-button" data-review-run="${esc(r.id)}">Review</button><button class="mini-button" data-cloud-csv="${esc(r.id)}">CSV</button></td></tr>`).join('')}</tbody></table></div>`;
@@ -835,6 +932,11 @@
         ${s.notes ? `<div class="review-note">Note: ${esc(s.notes)}</div>` : ''}</div>
         <span class="status-chip ${esc(s.status)}">${esc(s.status)}</span>
       </div>`).join('');
+    const noteField = $('reviewNoteInput');
+    if (noteField) noteField.value = row.review_note || '';
+    const reviewed = $('reviewReviewedLine');
+    if (reviewed) reviewed.textContent = row.reviewed_at ? `Last reviewed ${new Date(row.reviewed_at).toLocaleString()} by ${row.reviewed_by || 'manager'}` : 'Not reviewed yet.';
+    const saveBtn = $('saveReviewButton'); if (saveBtn) saveBtn.dataset.reviewSave = row.id;
     openDialog('reviewDialog');
   }
   function downloadCloudRunCSV(runId) {
@@ -844,9 +946,9 @@
   function downloadAllCloudCSV() {
     const rows = cloudRuns || [];
     if (!rows.length) { showToast('No completed jobs to export yet.'); return; }
-    const headers = ['route_name', 'route_date', 'driver', 'sequence', 'stop_name', 'address', 'latitude', 'longitude', 'status', 'completed_at', 'skip_reason', 'notes', 'device'];
+    const headers = ['route_name', 'route_date', 'driver', 'sequence', 'stop_name', 'address', 'latitude', 'longitude', 'status', 'completed_at', 'skip_reason', 'notes', 'device', 'manager_review_note', 'reviewed_at', 'reviewed_by'];
     const out = [headers];
-    rows.forEach(r => (r.stops || []).forEach(s => out.push([r.name, r.route_date, r.driver, s.sequence, s.name, s.address, s.lat ?? '', s.lon ?? '', s.status, s.completed_at || '', s.skip_reason || '', s.notes || '', r.device || ''])));
+    rows.forEach(r => (r.stops || []).forEach(s => out.push([r.name, r.route_date, r.driver, s.sequence, s.name, s.address, s.lat ?? '', s.lon ?? '', s.status, s.completed_at || '', s.skip_reason || '', s.notes || '', r.device || '', r.review_note || '', r.reviewed_at || '', r.reviewed_by || ''])));
     downloadText(`routedesk-completed-jobs-${todayISO()}.csv`, '\ufeff' + out.map(r => r.map(csvEscape).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
     showToast(`Exported ${rows.length} completed jobs.`);
   }
@@ -984,6 +1086,7 @@
     const restart=event.target.closest('[data-restart-route]');if(restart){restartRoute(restart.dataset.restartRoute);return;}
     const completeMode=event.target.closest('[data-complete-mode]');if(completeMode){finishRoute(completeMode.dataset.completeMode);return;}
     const review=event.target.closest('[data-review-run]');if(review){openReview(review.dataset.reviewRun);return;}
+    const retry=event.target.closest('[data-retry-sync]');if(retry){fetchCompletedRuns();return;}
     const cloudCsv=event.target.closest('[data-cloud-csv]');if(cloudCsv){downloadCloudRunCSV(cloudCsv.dataset.cloudCsv);return;}
     const filter=event.target.closest('[data-filter]');if(filter){stopFilter=filter.dataset.filter;document.querySelectorAll('.filter-pill').forEach(b=>b.classList.toggle('active',b===filter));renderStops(getActiveRoute());return;}
     const rowAction=event.target.closest('[data-action]');if(rowAction){const id=rowAction.dataset.id;const route=getActiveRoute();const stop=route?.stops.find(s=>s.id===id);if(!stop)return;switch(rowAction.dataset.action){case 'service':changeStopStatus(id,'serviced');break;case 'skip':openSkipDialog(stop);break;case 'undo':changeStopStatus(id,'pending');break;case 'edit':openStopDialog(stop);break;case 'up':moveStop(id,-1);break;case 'down':moveStop(id,1);break;case 'navigate':openNavigation(id);break;}return;}
@@ -1028,6 +1131,8 @@
     $('exportCompletedButton').addEventListener('click',downloadAllCloudCSV);
     window.addEventListener('online',()=>flushOutbox({quiet:false}));
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)flushOutbox({quiet:true});});
+    const copySql=$('copySqlButton'); if(copySql) copySql.addEventListener('click',copySetupSql);
+    const saveReview=$('saveReviewButton'); if(saveReview) saveReview.addEventListener('click',()=>saveReviewNote(saveReview.dataset.reviewSave));
     const cSearch=$('completedSearch'); if(cSearch) cSearch.addEventListener('input',e=>{state.ui=state.ui||{};state.ui.completedSearch=e.target.value;renderCompletedJobs();});
     $('navigateRouteButton').addEventListener('click',openNextStops);
     $('csvInput').addEventListener('change',e=>{handleCSVFile(e.target.files[0]);e.target.value='';});

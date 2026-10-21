@@ -32,6 +32,12 @@ create table if not exists public.completed_runs (
 create index if not exists completed_runs_team_time
   on public.completed_runs (team_id, completed_at desc);
 
+-- Manager review fields. These are added with IF NOT EXISTS so re-running this
+-- file upgrades an earlier install in place instead of failing.
+alter table public.completed_runs add column if not exists review_note text not null default '';
+alter table public.completed_runs add column if not exists reviewed_at timestamptz;
+alter table public.completed_runs add column if not exists reviewed_by text not null default '';
+
 alter table public.completed_runs enable row level security;
 
 -- Read: only rows whose team_id matches the caller's X-Team-Code header.
@@ -80,6 +86,12 @@ create policy "team can resubmit completed runs"
   );
 
 grant select, insert, update on public.completed_runs to anon;
+
+-- ---------------------------------------------------------------------------
+-- Upgrading an existing install
+-- ---------------------------------------------------------------------------
+-- Re-run this whole file. The create/alter statements are idempotent, so tables
+-- that already exist keep their rows and only the missing pieces are added.
 
 -- ---------------------------------------------------------------------------
 -- Pick a team code

@@ -1,6 +1,19 @@
-# RouteDesk V1.2
+# RouteDesk V1.3
 
 **A $0-first, local-first route and service log PWA for small delivery/service teams.** RouteDesk is a static browser app: no account, database, API key, subscription, or server-side code is required.
+
+## What's new in V1.3
+
+- **Manager review notes** — a manager can annotate any completed run ("verified with
+  customer", "follow up on the missed stop"). The note is stamped with who wrote it and
+  when, shows as a ✓ noted badge in the list, and is included in the CSV export.
+  *A driver resubmitting a run never overwrites a manager note.*
+- **In-app setup** — the Completed jobs screen has a **Copy setup SQL** button, so the
+  database is created by pasting one block into Supabase. No repo access needed.
+- **Plain-language setup errors** — a missing table, rejected key, outdated schema, or
+  team-code mismatch is explained in the app with the exact fix, instead of an HTTP code.
+- **Schema upgrades in place** — re-running the setup SQL adds any new columns and keeps
+  existing rows, so this release upgrades a V1.2 install without losing data.
 
 ## What's new in V1.2
 

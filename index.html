@@ -18,7 +18,7 @@
     <aside class="sidebar">
       <div class="brand-row">
         <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40"><path d="M8 29.5 18.4 9l5.2 10.2 3.2-6.4L34 29.5H8Z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/><circle cx="18.4" cy="9" r="3" fill="currentColor"/><circle cx="8" cy="29.5" r="2.6" fill="currentColor"/><circle cx="34" cy="29.5" r="2.6" fill="currentColor"/></svg></div>
-        <div class="brand-copy"><strong>RouteDesk <em class="version-tag" id="versionTag">V1.2</em></strong><span>ROUTE + SERVICE LOG</span></div>
+        <div class="brand-copy"><strong>RouteDesk <em class="version-tag" id="versionTag">V1.3</em></strong><span>ROUTE + SERVICE LOG</span></div>
       </div>
       <div class="workspace-label">WORKSPACE <span class="workspace-dot"></span> LOCAL</div>
       <nav class="side-nav" aria-label="Main navigation">
@@ -120,10 +120,11 @@
             <p>RouteDesk submits completed jobs to a Supabase project <strong>you own</strong>. Three steps, about five minutes, free tier.</p>
             <ol class="setup-steps">
               <li>Create a free project at <strong>supabase.com</strong> and open <strong>SQL Editor</strong>.</li>
-              <li>Paste and run <code>supabase/schema.sql</code> from the RouteDesk repo. It creates the table and locks it to your team code.</li>
+              <li>Tap <strong>Copy setup SQL</strong> below, paste it into the SQL Editor, and press <strong>Run</strong>. It creates the table and locks it to your team code. (Re-run it any time to upgrade — existing rows are kept.)</li>
               <li>In Supabase go to <strong>Project Settings → API</strong>, copy the <strong>Project URL</strong> and <strong>anon public key</strong>, then paste them below with a team code of your choosing.</li>
             </ol>
-            <button class="button button-primary" data-screen="settings" type="button">Open sync settings</button>
+            <div class="empty-actions"><button class="button button-primary" data-screen="settings" type="button">Open sync settings</button><button class="button button-secondary" id="copySqlButton" type="button">⧉ Copy setup SQL</button></div>
+            <p class="field-help" id="copySqlHint"></p>
           </div>
 
           <div class="sync-queue-note" id="completedQueueNote" hidden><span>⏳</span><p><strong>Runs waiting to submit.</strong> They will upload automatically when this device is online.</p></div>
@@ -169,7 +170,7 @@
               <div class="data-actions"><button class="button button-primary" id="saveSyncButton" type="button">Save sync settings</button><button class="button button-outline" id="testSyncButton" type="button">Test connection</button></div>
               <p class="field-help">Setup steps are on the <strong>Completed jobs</strong> screen. The team code is the only secret — anyone with your site URL, the public anon key, and this code can read and add completed runs for your team.</p>
             </section>
-            <section class="panel settings-panel data-panel"><div class="panel-heading"><div><p class="eyebrow">DATA</p><h3>Back up or move this workspace</h3></div></div><p class="field-help">RouteDesk stores data in this browser. Export a backup before clearing browser data or switching devices.</p><div class="data-actions"><button class="button button-outline" id="backupButton" type="button">↓ Download backup</button><button class="button button-outline" id="settingsImportButton" type="button">↑ Restore backup</button><button class="button button-danger-ghost" id="clearDataButton" type="button">Clear local data</button></div><p class="privacy-note wide-note"><span class="lock-icon">▣</span>Do not share a route package outside your company if it contains customer addresses.</p><p class="field-help"><span id="appVersion">RouteDesk V1.2</span> · master lists, reusable runs, and grouped navigation.</p></section>
+            <section class="panel settings-panel data-panel"><div class="panel-heading"><div><p class="eyebrow">DATA</p><h3>Back up or move this workspace</h3></div></div><p class="field-help">RouteDesk stores data in this browser. Export a backup before clearing browser data or switching devices.</p><div class="data-actions"><button class="button button-outline" id="backupButton" type="button">↓ Download backup</button><button class="button button-outline" id="settingsImportButton" type="button">↑ Restore backup</button><button class="button button-danger-ghost" id="clearDataButton" type="button">Clear local data</button></div><p class="privacy-note wide-note"><span class="lock-icon">▣</span>Do not share a route package outside your company if it contains customer addresses.</p><p class="field-help"><span id="appVersion">RouteDesk V1.3</span> · master lists, reusable runs, and grouped navigation.</p></section>
           </div>
         </section>
       </div>
@@ -191,7 +192,7 @@
 
   <dialog class="modal small-modal" id="completeDialog"><form method="dialog"><div class="modal-head"><div><p class="eyebrow">END OF RUN</p><h2>Finish this route?</h2></div><button class="icon-button modal-close" type="button" data-close-dialog="completeDialog">×</button></div><div class="modal-body"><p class="skip-stop-address" id="completeSummary"></p><p class="field-help">The finished run moves to <strong>Past routes</strong> and stays in your service log with its timestamps intact.</p><div class="complete-options"><button class="button button-primary button-wide" type="button" data-complete-mode="restart">Mark completed &amp; start a fresh run</button><button class="button button-secondary button-wide" type="button" data-complete-mode="archive">Mark completed only</button></div><p class="field-help">A fresh run reuses the same stops and clears serviced, skipped, notes, and timestamps for the interactive list. The completed run keeps its own log.</p></div></form></dialog>
 
-  <dialog class="modal" id="reviewDialog"><form method="dialog"><div class="modal-head"><div><p class="eyebrow">COMPLETED RUN</p><h2 id="reviewTitle">Run</h2><p class="review-meta" id="reviewMeta"></p></div><button class="icon-button modal-close" type="button" data-close-dialog="reviewDialog">×</button></div><div class="modal-body"><div class="review-list" id="reviewBody"></div></div><div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="reviewDialog">Close</button></div></form></dialog>
+  <dialog class="modal" id="reviewDialog"><form method="dialog"><div class="modal-head"><div><p class="eyebrow">COMPLETED RUN</p><h2 id="reviewTitle">Run</h2><p class="review-meta" id="reviewMeta"></p></div><button class="icon-button modal-close" type="button" data-close-dialog="reviewDialog">×</button></div><div class="modal-body"><div class="review-list" id="reviewBody"></div><p class="review-meta" id="reviewReviewedLine"></p><label class="field-label" for="reviewNoteInput">Manager note <span class="label-soft">for the record</span></label><textarea class="text-input textarea-input" id="reviewNoteInput" rows="3" placeholder="e.g. Verified with customer, or follow up on the missed stop"></textarea></div><div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="reviewDialog">Close</button><button class="button button-primary" id="saveReviewButton" type="button" data-review-save="">Save note</button></div></form></dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="app.js" defer></script>
