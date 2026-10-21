@@ -2,7 +2,7 @@
   'use strict';
   const STORAGE_KEY = 'routedesk-free-workspace-v1';
   const OUTBOX_KEY = 'routedesk-outbox-v1';
-  const APP_VERSION = '1.3';
+  const APP_VERSION = '1.4';
   const $ = (id) => document.getElementById(id);
   const todayISO = () => {
     const d = new Date();
@@ -682,18 +682,18 @@ alter table public.completed_runs enable row level security;
 drop policy if exists "team can read its completed runs" on public.completed_runs;
 create policy "team can read its completed runs"
   on public.completed_runs for select to anon
-  using (team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''));
+  using (team_id <> '' and team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''));
 
 drop policy if exists "team can submit completed runs" on public.completed_runs;
 create policy "team can submit completed runs"
   on public.completed_runs for insert to anon
-  with check (team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''));
+  with check (team_id <> '' and team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''));
 
 drop policy if exists "team can resubmit completed runs" on public.completed_runs;
 create policy "team can resubmit completed runs"
   on public.completed_runs for update to anon
-  using (team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''))
-  with check (team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''));
+  using (team_id <> '' and team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''))
+  with check (team_id <> '' and team_id = coalesce(nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code', ''));
 
 grant select, insert, update on public.completed_runs to anon;`;
 

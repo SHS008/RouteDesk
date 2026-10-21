@@ -15,6 +15,24 @@ You only do steps 1–3 once. After that, each device needs the same three value
 
 Free plan notes: 500 MB database, no automatic backups, and the project **pauses after a week with no activity**. Daily route use keeps it active. If it does pause, open the dashboard and resume — your data is kept.
 
+## Step 0 — If you linked the project to GitHub
+
+Connecting Supabase to GitHub (sign in with GitHub, or the Supabase **GitHub
+Integration**) does **not** create RouteDesk's table on its own. It only lets Supabase
+run SQL files from the repository's `supabase/migrations/` folder when it deploys a
+branch. This repo now ships that migration:
+
+```
+supabase/migrations/20261021120000_routedesk_init.sql
+```
+
+So if your integration is pointed at `SHS008/RouteDesk`, it can apply the schema for you
+on its next deploy. Nothing in the app depends on which route you take — but the SQL
+Editor path below is the one that is guaranteed to work in 30 seconds, so use it unless
+you have already watched a deployment succeed.
+
+Either way, **you can confirm it worked in Step 2's check.**
+
 ## Step 2 — Create the table and its security rules
 
 Easiest path: open RouteDesk → **Completed jobs** → **⧉ Copy setup SQL**.
@@ -28,6 +46,21 @@ repository.
 This creates one table, `completed_runs`, and locks it so a device can only read and add
 rows carrying its own team code. **Re-running it later is safe** — it adds any missing
 columns and keeps your existing rows, so it doubles as the upgrade step.
+
+### Confirm it worked
+
+In the SQL Editor run:
+
+```sql
+select count(*) from public.completed_runs;
+```
+
+`0` means the table exists and you're done. A "relation does not exist" error means the
+SQL did not run — try the SQL Editor path again.
+
+The policies in this schema were tested against PostgreSQL 17, not just assumed:
+a device sending one team code cannot read, add, or edit another team's rows, and a
+request with no team code (or an empty one) is rejected outright.
 
 ## Step 3 — Pick a team code
 

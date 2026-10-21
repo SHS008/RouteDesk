@@ -1,6 +1,14 @@
-# RouteDesk V1.3
+# RouteDesk V1.4
 
 **A $0-first, local-first route and service log PWA for small delivery/service teams.** RouteDesk is a static browser app: no account, database, API key, subscription, or server-side code is required.
+
+## What's new in V1.4
+
+- **Hardened team isolation** — the sync policies now reject any row with an empty team
+  id, so a request carrying no team code can neither read nor create records. Verified
+  against PostgreSQL 17: cross-team reads, inserts, and edits all fail.
+- **Migration file for the GitHub integration** — `supabase/migrations/` now contains the
+  schema, so linking the repo to Supabase can apply it on deploy.
 
 ## What's new in V1.3
 
@@ -162,6 +170,7 @@ service-worker update, so an update does not clear anyone's route data.
 
 - `index.html` — app interface
 - `supabase/schema.sql` — cloud table and security policy for the Completed jobs portal
+- `supabase/migrations/20261021120000_routedesk_init.sql` — same schema, for the Supabase GitHub integration
 - `supabase/SETUP.md` — five-minute setup guide
 - Master lists, runs, and past routes are all stored in the same browser workspace
 - `styles.css` — responsive mobile/desktop layout

@@ -1,4 +1,4 @@
--- RouteDesk V1.2 — cloud sync schema for Supabase
+-- RouteDesk V1.4 — cloud sync schema for Supabase
 --
 -- Run this once in your Supabase project: Dashboard -> SQL Editor -> New query ->
 -- paste this whole file -> Run.
@@ -47,10 +47,11 @@ create policy "team can read its completed runs"
   for select
   to anon
   using (
-    team_id = coalesce(
-      nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code',
-      ''
-    )
+    team_id <> ''
+      and team_id = coalesce(
+        nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code',
+        ''
+      )
   );
 
 -- Submit: a device may only write rows carrying its own team code.
@@ -60,10 +61,11 @@ create policy "team can submit completed runs"
   for insert
   to anon
   with check (
-    team_id = coalesce(
-      nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code',
-      ''
-    )
+    team_id <> ''
+      and team_id = coalesce(
+        nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code',
+        ''
+      )
   );
 
 -- Lets the retry/upsert path replace an existing row instead of failing.
@@ -73,16 +75,18 @@ create policy "team can resubmit completed runs"
   for update
   to anon
   using (
-    team_id = coalesce(
-      nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code',
-      ''
-    )
+    team_id <> ''
+      and team_id = coalesce(
+        nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code',
+        ''
+      )
   )
   with check (
-    team_id = coalesce(
-      nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code',
-      ''
-    )
+    team_id <> ''
+      and team_id = coalesce(
+        nullif(current_setting('request.headers', true), '')::json ->> 'x-team-code',
+        ''
+      )
   );
 
 grant select, insert, update on public.completed_runs to anon;
