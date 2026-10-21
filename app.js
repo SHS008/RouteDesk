@@ -489,7 +489,28 @@
     window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();installPrompt=event;$('installButton').hidden=false;});
     $('installButton').addEventListener('click',async()=>{if(!installPrompt){showToast('On iPhone, use Share → Add to Home Screen in Safari.');return;}installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;$('installButton').hidden=true;});
     document.querySelectorAll('dialog').forEach(d=>d.addEventListener('close',()=>{if(d.id==='routeDialog')resetRouteDialog();}));
-    if('serviceWorker' in navigator && location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});
+    registerServiceWorker();
+  }
+  // Keep installed copies current: check for a new service worker when the app
+  // regains focus and hourly, then reload once when the updated worker takes
+  // control. Without this a redeploy left drivers on stale cached code.
+  function registerServiceWorker() {
+    if (!('serviceWorker' in navigator) || !location.protocol.startsWith('http')) return;
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloading) return;
+      reloading = true;
+      location.reload();
+    });
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js').then(registration => {
+        const checkForUpdate = () => { registration.update().catch(() => {}); };
+        window.addEventListener('focus', checkForUpdate);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+        setInterval(checkForUpdate, 60 * 60 * 1000);
+      }).catch(() => {});
+    });
   }
   function init() {
     initEvents();
