@@ -788,6 +788,11 @@
     if (pill) pill.textContent = syncReady() ? 'Cloud workspace' : 'Local workspace';
     const mirror = $('syncBadgeSettings');
     if (mirror) { mirror.textContent = label; mirror.className = `sync-badge ${tone}`; }
+    const head = $('storageHeadline'), sub = $('storageSubline');
+    if (head && sub) {
+      if (syncReady()) { head.textContent = 'Saved locally + submitted'; sub.textContent = 'Completed runs go to your portal'; }
+      else { head.textContent = 'Saved on this device'; sub.textContent = 'No subscription or account'; }
+    }
   }
   function renderCompletedJobs() {
     const list = $('completedList'); if (!list) return;
@@ -806,7 +811,7 @@
     if (!rows.length) { list.innerHTML = ''; empty.hidden = false; }
     else {
       empty.hidden = true;
-      list.innerHTML = `<div class="table-scroll"><table class="report-table"><thead><tr><th>ROUTE</th><th>DATE COMPLETED</th><th>DRIVER</th><th>STOPS</th><th>SERVICED</th><th>SKIPPED</th><th></th></tr></thead><tbody>${rows.map(r => `
+      list.innerHTML = `<div class="table-scroll"><table class="report-table"><thead><tr><th>ROUTE</th><th>COMPLETED</th><th>DRIVER</th><th>STOPS</th><th>SERV</th><th>SKIP</th><th></th></tr></thead><tbody>${rows.map(r => `
         <tr><td><div class="table-route-name">${esc(r.name)}</div><div class="table-route-driver">${esc(r.device || '')}</div></td>
         <td>${esc(prettyDate((r.completed_at || '').slice(0, 10), { month: 'short', day: 'numeric', year: 'numeric' }))}</td>
         <td>${esc(r.driver || '—')}</td><td>${esc(r.stop_count)}</td><td>${esc(r.serviced)}</td><td>${esc(r.skipped)}</td>
