@@ -319,6 +319,7 @@
     if (mode && document.activeElement !== mode) mode.value=state.settings.navMode||'app';
     if (trip && document.activeElement !== trip) trip.value=state.settings.tripStops||'auto';
     const version=$('appVersion'); if(version) version.textContent=`RouteDesk V${APP_VERSION}`;
+    const tag=$('versionTag'); if(tag) tag.textContent=`V${APP_VERSION}`;
     renderSyncSettings();
   }
   function setActiveRoute(id) {
