@@ -72,13 +72,24 @@ select encode(gen_random_bytes(18), 'base64');
 
 Copy the result — that is your **team code**. Use the *same* string on every device. Treat it like a shared password.
 
-## Step 4 — Copy your project URL and anon key
+## Step 4 — Copy your project URL and key
 
-1. **Project Settings** (gear, bottom-left) → **API**.
-2. Copy **Project URL** — looks like `https://abcdefghijk.supabase.co`.
-3. Copy **anon / public** key — the long `eyJ...` string.
+Supabase renamed this area. There is **no "API" page any more** — it is now
+**Settings → API Keys**.
 
-> ⚠️ Never use the **`service_role`** key in RouteDesk. It ignores every security rule and would expose all your data. The anon key is public by design and is the correct one.
+1. **Project Settings** (gear, bottom-left) → **API Keys**.
+2. Copy the **Project URL** — looks like `https://abcdefghijk.supabase.co`.
+3. Copy the **Publishable key** — it starts with `sb_publishable_`.
+
+Notes:
+
+- On a project created before mid-2025 you may instead see a tab called **Legacy API
+  keys** holding an **anon** key that starts with `eyJ`. Both kinds work in RouteDesk;
+  it detects which one you pasted.
+- If your project shows a **Create new API keys** button, you are on legacy keys only.
+  Creating the new ones is safe and keeps the old ones working.
+- ⚠️ **Never** paste a **secret** key (`sb_secret_…`) or a **`service_role`** key. Those
+  bypass every security rule and would expose all your data. RouteDesk refuses them.
 
 ## Step 5 — Enter it on each device
 
@@ -87,7 +98,7 @@ Open RouteDesk → **Settings** → **Manager portal**:
 | Field | What to paste |
 |---|---|
 | Supabase project URL | `https://yourproject.supabase.co` |
-| Anon public key | the `eyJ...` string |
+| Publishable key | `sb_publishable_…` (or the older `eyJ…` anon key) |
 | Team code | the string from step 3 — **identical on every device** |
 | This device name | e.g. `Truck 1 — Dana` or `Office PC` |
 
@@ -114,6 +125,8 @@ The badge in the top bar reads **Cloud synced** when everything is working, **N 
 | Symptom | Cause | Fix |
 |---|---|---|
 | "Sync error" badge | Wrong URL/key, or schema not run | Re-check step 4 values; confirm step 2 succeeded |
+| "Invalid JWT" | A publishable key was sent as a bearer token | Fixed in V1.6 — the app now sends it on `apikey` only. Update to V1.6+ |
+| "That is a secret key" | Pasted `sb_secret_…` or `service_role` | Use the publishable key instead |
 | "Could not reach the manager portal" | Project paused (free tier, 7 days idle) | Resume it in the Supabase dashboard |
 | Completed jobs is empty but drivers submitted | Team code differs by a typo or a trailing space | Compare the code character-for-character on both devices |
 | Setup screen keeps appearing | URL, key, or code field is blank | All three are required |

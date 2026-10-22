@@ -2,7 +2,7 @@
   'use strict';
   const STORAGE_KEY = 'routedesk-free-workspace-v1';
   const OUTBOX_KEY = 'routedesk-outbox-v1';
-  const APP_VERSION = '1.5';
+  const APP_VERSION = '1.6';
   const $ = (id) => document.getElementById(id);
   const todayISO = () => {
     const d = new Date();
@@ -731,14 +731,34 @@ grant select, insert, update on public.completed_runs to anon;`;
     const c = syncConfig();
     return !!(c.url && c.anonKey && c.teamCode);
   }
+  // Supabase now issues two shapes of browser-safe key:
+  //   legacy anon key      -> a JWT, starts with "eyJ"
+  //   publishable key      -> "sb_publishable_...", not a JWT
+  // A publishable key must go on the apikey header only. Sending it as a Bearer
+  // token makes the platform try to parse it as a JWT and reject the request.
+  function isJwtKey(key) { return /^eyJ/.test(String(key || '')); }
   function syncHeaders() {
     const c = syncConfig();
-    return {
+    const headers = {
       'apikey': c.anonKey,
-      'Authorization': `Bearer ${c.anonKey}`,
       'Content-Type': 'application/json',
       'X-Team-Code': c.teamCode
     };
+    if (isJwtKey(c.anonKey)) headers['Authorization'] = `Bearer ${c.anonKey}`;
+    return headers;
+  }
+  // Guard rails: a secret key in a public web page can read and write everything.
+  function keyProblem(key) {
+    const k = String(key || '').trim();
+    if (!k) return '';
+    if (/^sb_secret_/.test(k)) return 'That is a secret key. It bypasses every security rule, so it must never go in a web page. Use the publishable key (sb_publishable_…) instead.';
+    if (isJwtKey(k)) {
+      try {
+        const payload = JSON.parse(atob(k.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+        if (payload && payload.role === 'service_role') return 'That is the service_role key. It bypasses every security rule, so it must never go in a web page. Use the publishable or anon key instead.';
+      } catch (_) {}
+    }
+    return '';
   }
   function readOutbox() {
     try { const raw = localStorage.getItem(OUTBOX_KEY); const list = raw ? JSON.parse(raw) : []; return Array.isArray(list) ? list : []; }
@@ -990,6 +1010,9 @@ grant select, insert, update on public.completed_runs to anon;`;
   }
   function saveSyncSettings() {
     const before = syncConfig();
+    const keyTyped = $('syncKeyInput').value.trim();
+    const keyIssue = keyProblem(keyTyped);
+    if (keyIssue) { showToast(keyIssue); return false; }
     const typed = $('syncUrlInput').value.trim();
     if (typed) {
       const resolved = normalizeSupabaseUrl(typed);
@@ -1017,8 +1040,9 @@ grant select, insert, update on public.completed_runs to anon;`;
     const auto = $('syncAutoInput'); if (auto) auto.checked = c.autoSubmit;
     const state$ = $('syncStateLine');
     if (state$) {
+      const kind = !c.anonKey ? '' : isJwtKey(c.anonKey) ? ' (legacy anon key)' : ' (publishable key)';
       state$.textContent = syncReady()
-        ? `Connected to ${c.url} — completed runs submit automatically.`
+        ? `Connected to ${c.url}${kind} — completed runs submit automatically.`
         : 'Not configured yet — follow the setup steps on the Completed jobs screen.';
     }
   }

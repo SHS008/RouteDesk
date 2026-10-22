@@ -1,6 +1,17 @@
-# RouteDesk V1.5
+# RouteDesk V1.6
 
 **A $0-first, local-first route and service log PWA for small delivery/service teams.** RouteDesk is a static browser app: no account, database, API key, subscription, or server-side code is required.
+
+## What's new in V1.6
+
+- **Works with Supabase's new API keys.** Supabase replaced the "anon" key with a
+  **publishable key** (`sb_publishable_…`) and there is no longer a *Settings → API*
+  page. RouteDesk accepts either key and detects which one you pasted. A publishable key
+  is sent on the `apikey` header only — sending it as a bearer token, which the previous
+  version did, makes Supabase reject the request with *Invalid JWT*.
+- **Refuses dangerous keys.** A `sb_secret_…` key or a legacy `service_role` JWT bypasses
+  every security rule; RouteDesk now refuses them with an explanation instead of storing
+  them in the browser.
 
 ## What's new in V1.5
 
