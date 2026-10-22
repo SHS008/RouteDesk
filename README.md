@@ -2,6 +2,14 @@
 
 **A $0-first, local-first route and service log PWA for small delivery/service teams.** RouteDesk is a static browser app: no account, database, API key, subscription, or server-side code is required.
 
+## Running it from a single file
+
+`python3 build-single-file.py` bundles everything into one `RouteDesk-V1.7-ONE-FILE.html`
+with the CSS, JavaScript, and icons inlined. That file can be emailed, opened from a USB
+stick, or double-clicked from disk with no extraction and no server. The manifest and
+service worker are dropped in that build because browsers block both on `file://` pages;
+everything else — local storage, master lists, and portal submission — works unchanged.
+
 ## What's new in V1.7
 
 - **Send past routes to the portal.** Submission only happened at the moment a route was
