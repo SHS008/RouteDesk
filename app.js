@@ -2,7 +2,7 @@
   'use strict';
   const STORAGE_KEY = 'routedesk-free-workspace-v1';
   const OUTBOX_KEY = 'routedesk-outbox-v1';
-  const APP_VERSION = '1.6';
+  const APP_VERSION = '1.7';
   const $ = (id) => document.getElementById(id);
   const todayISO = () => {
     const d = new Date();
@@ -251,7 +251,13 @@
     const fromList = route.templateId ? state.templates.find(t => t.id === route.templateId) : null;
     const source = fromList ? `<span class="list-tag">▦ ${esc(fromList.name)}</span>` : '';
     const restart = route.status === 'complete' ? `<button class="button button-quiet" data-restart-route="${esc(route.id)}">↺ Restart</button>` : '';
-    return `<article class="route-list-card" data-open-route="${esc(route.id)}"><div class="route-card-top"><div><span class="badge badge-${badge}">${label}</span><h3>${esc(route.name)}</h3><div class="route-card-meta">${esc(prettyDate(route.date))} · ${esc(route.driver||'Unassigned')} · ${c.total} stops</div>${source}</div><button class="icon-button" data-route-card-menu="${esc(route.id)}" aria-label="Route actions">•••</button></div><div class="route-card-bottom"><div class="route-mini-progress"><div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div><span>${pct}% closed</span></div><div class="route-card-buttons">${restart}<button class="button button-quiet" data-open-route="${esc(route.id)}">Open route</button><button class="button button-quiet" data-route-card-export="${esc(route.id)}">Export</button></div></div></article>`;
+    let submit = '';
+    if (route.status === 'complete') {
+      submit = route.submittedAt
+        ? '<span class="submitted-chip">✓ Sent to portal</span>'
+        : `<button class="button button-quiet" data-submit-route="${esc(route.id)}">⇧ Send to portal</button>`;
+    }
+    return `<article class="route-list-card" data-open-route="${esc(route.id)}"><div class="route-card-top"><div><span class="badge badge-${badge}">${label}</span><h3>${esc(route.name)}</h3><div class="route-card-meta">${esc(prettyDate(route.date))} · ${esc(route.driver||'Unassigned')} · ${c.total} stops</div>${source}</div><button class="icon-button" data-route-card-menu="${esc(route.id)}" aria-label="Route actions">•••</button></div><div class="route-card-bottom"><div class="route-mini-progress"><div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div><span>${pct}% closed</span></div><div class="route-card-buttons">${submit}${restart}<button class="button button-quiet" data-open-route="${esc(route.id)}">Open route</button><button class="button button-quiet" data-route-card-export="${esc(route.id)}">Export</button></div></div></article>`;
   }
   function routeSection(title, note, routes) {
     const sorted = [...routes].sort((a,b) => (b.date||'').localeCompare(a.date||'') || (b.updatedAt||'').localeCompare(a.updatedAt||''));
@@ -834,6 +840,34 @@ grant select, insert, update on public.completed_runs to anon;`;
     renderSyncBadge();
     flushOutbox({ quiet: false });
   }
+  // Routes finished while sync was off (or before the portal existed) never got
+  // submitted. This sends one on demand. Safe to repeat: the run id is the
+  // primary key, so a second send replaces the copy instead of duplicating it.
+  function markSubmitted(route) {
+    route.submittedAt = new Date().toISOString();
+    saveState();
+  }
+  function submitPastRoute(routeId) {
+    const route = getRoute(routeId);
+    if (!route || route.status !== 'complete') return;
+    if (!syncReady()) { showToast('Connect the portal in Settings first.'); setScreen('settings'); return; }
+    queueRun(route);
+    markSubmitted(route);
+    render(); setScreen('completed');
+    flushOutbox({ quiet: false }).then(() => fetchCompletedRuns({ quiet: true }));
+  }
+  function unsubmittedPastRoutes() {
+    return state.routes.filter(r => r.status === 'complete' && !r.submittedAt);
+  }
+  function submitAllPastRoutes() {
+    if (!syncReady()) { showToast('Connect the portal in Settings first.'); setScreen('settings'); return; }
+    const pendingRuns = unsubmittedPastRoutes();
+    if (!pendingRuns.length) { showToast('Every completed route has already been sent.'); return; }
+    if (!window.confirm(`Send ${pendingRuns.length} completed route${pendingRuns.length === 1 ? '' : 's'} to the portal?`)) return;
+    pendingRuns.forEach(r => { queueRun(r); markSubmitted(r); });
+    render(); setScreen('completed');
+    flushOutbox({ quiet: false }).then(() => fetchCompletedRuns({ quiet: true }));
+  }
   async function fetchCompletedRuns(options = {}) {
     if (!syncReady()) { cloudStatus = 'off'; cloudRuns = []; renderCompletedJobs(); return []; }
     cloudStatus = 'syncing'; renderSyncBadge();
@@ -935,12 +969,16 @@ grant select, insert, update on public.completed_runs to anon;`;
     const list = $('completedList'); if (!list) return;
     const empty = $('completedEmpty'); const setup = $('completedSetup');
     if (!syncReady()) {
+      const hiddenBulk = $('submitAllCompletedButton'); if (hiddenBulk) hiddenBulk.hidden = true;
       list.innerHTML = ''; empty.hidden = true; setup.hidden = false;
       const note = $('completedQueueNote');
       if (note) note.hidden = readOutbox().length === 0;
       return;
     }
     setup.hidden = true;
+    const waiting = unsubmittedPastRoutes().length;
+    const bulk = $('submitAllCompletedButton');
+    if (bulk) { bulk.hidden = waiting === 0; bulk.textContent = `⇧ Send ${waiting} past route${waiting === 1 ? '' : 's'}`; }
     const q = (state.ui && state.ui.completedSearch || '').trim().toLowerCase();
     let rows = cloudRuns || [];
     if (q) rows = rows.filter(r => `${r.name} ${r.driver} ${r.route_date} ${(r.stops || []).map(s => s.address).join(' ')}`.toLowerCase().includes(q));
@@ -1140,13 +1178,16 @@ grant select, insert, update on public.completed_runs to anon;`;
     const cardMenu=event.target.closest('[data-route-card-menu]');if(cardMenu){event.stopPropagation();const route=getRoute(cardMenu.dataset.routeCardMenu);if(route)shareRoute(route);return;}
     const cardExport=event.target.closest('[data-route-card-export]');if(cardExport){event.stopPropagation();exportRouteCSV(getRoute(cardExport.dataset.routeCardExport));return;}
     const reportExport=event.target.closest('[data-report-export]');if(reportExport){exportRouteCSV(getRoute(reportExport.dataset.reportExport));return;}
-    const openRoute=event.target.closest('[data-open-route]');if(openRoute){setActiveRoute(openRoute.dataset.openRoute);return;}
     const startTemplate=event.target.closest('[data-start-template]');if(startTemplate){startRunFromTemplate(startTemplate.dataset.startTemplate);return;}
     const editTemplate=event.target.closest('[data-edit-template]');if(editTemplate){openListDialog(editTemplate.dataset.editTemplate);return;}
     const delTemplate=event.target.closest('[data-delete-template]');if(delTemplate){deleteTemplate(delTemplate.dataset.deleteTemplate);return;}
     const restart=event.target.closest('[data-restart-route]');if(restart){restartRoute(restart.dataset.restartRoute);return;}
+    const submitRoute=event.target.closest('[data-submit-route]');if(submitRoute){submitPastRoute(submitRoute.dataset.submitRoute);return;}
     const completeMode=event.target.closest('[data-complete-mode]');if(completeMode){finishRoute(completeMode.dataset.completeMode);return;}
     const review=event.target.closest('[data-review-run]');if(review){openReview(review.dataset.reviewRun);return;}
+    // The whole card is a click target, so this must come after every specific
+    // button inside a card, or Send/Restart would just open the route instead.
+    const openRoute=event.target.closest('[data-open-route]');if(openRoute){setActiveRoute(openRoute.dataset.openRoute);return;}
     const retry=event.target.closest('[data-retry-sync]');if(retry){fetchCompletedRuns();return;}
     const cloudCsv=event.target.closest('[data-cloud-csv]');if(cloudCsv){downloadCloudRunCSV(cloudCsv.dataset.cloudCsv);return;}
     const filter=event.target.closest('[data-filter]');if(filter){stopFilter=filter.dataset.filter;document.querySelectorAll('.filter-pill').forEach(b=>b.classList.toggle('active',b===filter));renderStops(getActiveRoute());return;}
@@ -1194,6 +1235,7 @@ grant select, insert, update on public.completed_runs to anon;`;
     $('testSyncButton').addEventListener('click',testSync);
     $('refreshCompletedButton').addEventListener('click',()=>fetchCompletedRuns());
     $('exportCompletedButton').addEventListener('click',downloadAllCloudCSV);
+    $('submitAllCompletedButton').addEventListener('click',submitAllPastRoutes);
     window.addEventListener('online',()=>flushOutbox({quiet:false}));
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)flushOutbox({quiet:true});});
     const copySql=$('copySqlButton'); if(copySql) copySql.addEventListener('click',copySetupSql);

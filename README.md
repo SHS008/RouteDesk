@@ -1,6 +1,17 @@
-# RouteDesk V1.6
+# RouteDesk V1.7
 
 **A $0-first, local-first route and service log PWA for small delivery/service teams.** RouteDesk is a static browser app: no account, database, API key, subscription, or server-side code is required.
+
+## What's new in V1.7
+
+- **Send past routes to the portal.** Submission only happened at the moment a route was
+  finished, so anything completed before the portal was set up could never appear. Past
+  routes now carry a **Send to portal** button, and Completed jobs offers a bulk
+  **Send N past routes** action. Re-sending is idempotent.
+- **Fixed: card buttons were being swallowed.** The whole route card is a click target,
+  and its handler ran before the specific buttons inside it, so *Restart* and the new
+  *Send to portal* silently opened the route instead of acting. Specific actions now
+  take precedence.
 
 ## What's new in V1.6
 

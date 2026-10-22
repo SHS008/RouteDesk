@@ -7,7 +7,7 @@
  * already visited the app. Bump CACHE_VERSION on every release anyway — it
  * makes the activate step clear stale precache entries deterministically.
  */
-const CACHE_VERSION = 'v11';
+const CACHE_VERSION = 'v12';
 const CACHE_NAME = `routedesk-free-${CACHE_VERSION}`;
 const SHELL = [
   './',
