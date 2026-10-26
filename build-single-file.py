@@ -6,7 +6,7 @@ files getting separated. One file has none of those failure modes.
 """
 import base64, pathlib, re
 
-src = pathlib.Path('/home/user/RouteDesk')
+src = pathlib.Path(__file__).resolve().parent
 html = (src / 'index.html').read_text()
 css = (src / 'styles.css').read_text()
 js = (src / 'app.js').read_text()
@@ -30,7 +30,7 @@ html = re.sub(r'\s*<link rel="manifest"[^>]*>', '', html)
 
 banner = ('<!-- RouteDesk V1.7 — single-file build.\n'
           '     Open this file directly. No server, no install, no other files needed. -->\n')
-out = pathlib.Path('/home/user/RouteDesk-V1.7-ONE-FILE.html')
+out = src / 'RouteDesk-Driver-Mode.html'
 out.write_text(banner + html)
 print('wrote', out, f'{out.stat().st_size/1024:.0f} KB')
 print('remaining external refs:', re.findall(r'(?:src|href)="(?!data:|#)[^"]+"', html))

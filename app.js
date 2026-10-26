@@ -130,6 +130,7 @@
     $('headerDate').textContent = new Date().toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
     $('navTodayCount').textContent = String(state.routes.filter(r => r.date === todayISO() && r.status !== 'complete').length);
     renderToday();
+    renderDriverMode();
     renderLibrary();
     renderRoutes();
     renderCompletedJobs();
@@ -159,10 +160,10 @@
     $('routeOriginSummary').textContent = firstAddress;
     $('sequenceNote').innerHTML = route.orderMethod === 'Approximate straight-line distance' ? '<span class="note-icon">↕</span><span>Approximate straight-line order is active. It is not road-time or traffic-aware. Use the arrows to adjust stops.</span>' : route.orderMethod === 'Manual reorder' ? '<span class="note-icon">↕</span><span>Stops were manually reordered. Use the arrows to keep adjusting the sequence.</span>' : '<span class="note-icon">↕</span><span>Imported order is preserved. Use the arrows to reorder, or include <code>lat</code>/<code>lon</code> columns for an approximate distance sort.</span>';
     $('routeStatusDot').className = `route-status-dot ${route.status === 'active' ? 'active' : route.status === 'complete' ? 'complete' : ''}`;
-    $('startRouteButton').textContent = route.status === 'complete' ? 'Route completed' : 'Start route';
+    $('startRouteButton').textContent = route.status === 'complete' ? 'Route completed' : route.status === 'active' ? 'Resume driver mode' : 'Start route';
     $('startRouteButton').disabled = route.status === 'complete';
     // Once a run is under way the explicit Finish route button covers the action.
-    $('startRouteButton').hidden = route.status !== 'planned';
+    $('startRouteButton').hidden = route.status === 'complete';
     const c = counts(route);
     $('summaryTotal').textContent = c.total;
     $('summaryPending').textContent = `${c.pending} pending`;
@@ -444,12 +445,46 @@
     const c=counts(route);if(c.total>0&&c.pending===0&&route.status!=='complete')route.status='active';
     saveState();render();showToast(status==='serviced'?'Stop marked serviced.':status==='skipped'?'Skip recorded.':'Stop reopened.');
   }
+  let driverUndo = null;
+  function renderDriverMode() {
+    let panel=$('driverMode');
+    if(!panel){panel=document.createElement('section');panel.id='driverMode';panel.setAttribute('aria-label','Driver mode');document.body.appendChild(panel);panel.addEventListener('click',driverClick);}
+    const route=getActiveRoute();
+    const visible=route && state.ui?.driverRoute===route.id && route.status!=='complete';
+    panel.hidden=!visible;document.body.classList.toggle('driving',!!visible);if(!visible)return;
+    const pending=route.stops.filter(s=>s.status==='pending');const stop=pending[0];const c=counts(route);
+    panel.innerHTML=`<div class="driver-shell"><header class="driver-head"><div><span class="driver-brand">ROUTEDESK / DRIVER MODE</span><p>${esc(route.name)}</p></div><button data-driver="exit" class="driver-small">Exit driver mode ↗</button></header><div class="driver-progress"><span>${c.total-c.pending} of ${c.total} logged</span><span>● Saved on this device</span></div><progress max="${c.total||1}" value="${c.total-c.pending}"></progress>
+    ${stop?`<main class="driver-current"><span class="driver-kicker">NEXT STOP · ${route.stops.indexOf(stop)+1} OF ${c.total}</span><h1>${esc(stop.name||stop.address||'Unnamed stop')}</h1>${stop.name?`<p class="driver-address">${esc(stop.address)}</p>`:''}${stop.notes?`<div class="driver-note"><strong>STOP NOTES</strong><p>${esc(stop.notes)}</p></div>`:''}<button class="driver-nav" data-driver="navigate">↗ Open navigation <span>Optional · uses your selected maps app</span></button></main><div class="driver-actions"><button class="driver-serviced" data-driver="service"><span>✓</span> Serviced <small>Save & next stop →</small></button><div class="driver-secondary"><button data-driver="skip">↷ Skipped</button><button data-driver="issue">⚠ Issue</button></div><p class="driver-hint">No signal needed. Each log is saved before you move on.</p></div>`:`<main class="driver-current driver-done"><span class="driver-kicker">ALL STOPS LOGGED</span><h1>That’s the last stop.</h1><p class="driver-address">${c.serviced} serviced · ${c.skipped} skipped</p><p>Your log is saved locally. Finish the route when you’re ready.</p><button class="driver-serviced" data-driver="finish">Finish route →</button></main>`}
+    <footer class="driver-footer"><button data-driver="undo" ${driverUndo?.routeId===route.id?'':'disabled'}>↶ Undo last log</button><button data-driver="exit">☷ View stop list</button></footer><div id="driverEditor"></div></div>`;
+  }
+  function driverClick(e){
+    const action=e.target.closest('[data-driver]')?.dataset.driver;if(!action)return;
+    const route=getActiveRoute();if(!route)return;const stop=route.stops.find(s=>s.status==='pending');
+    if(action==='exit'){delete state.ui.driverRoute;saveState();render();$('startRouteButton').focus();return;}
+    if(action==='navigate'&&stop){openNavigation(stop.id);return;}
+    if(action==='finish'){delete state.ui.driverRoute;saveState();render();openCompleteDialog();return;}
+    if(action==='undo'&&driverUndo?.routeId===route.id){const old=route.stops.find(s=>s.id===driverUndo.stop.id);if(old)Object.assign(old,driverUndo.stop);driverUndo=null;saveState();render();showToast('Last log undone.');return;}
+    if(action==='cancel'){renderDriverMode();return;}
+    if(!stop)return;
+    if(action==='service'){driverLog(stop,'serviced');return;}
+    if(action==='skip'||action==='issue'){
+      const issue=action==='issue';$('driverEditor').innerHTML=`<div class="driver-editor" role="dialog" aria-modal="true" aria-labelledby="driverEditorTitle"><form id="driverLogForm"><span class="driver-kicker">STOP ${route.stops.indexOf(stop)+1}</span><h2 id="driverEditorTitle">${issue?'Record an issue':'Skip this stop'}</h2><p>${esc(stop.name||stop.address)}</p>${issue?'<label>What happened?<textarea id="driverDetail" required rows="3" placeholder="Describe the issue…"></textarea></label><label>Stop outcome<select id="driverOutcome"><option value="serviced">Serviced — with issue noted</option><option value="skipped">Skipped — could not service</option><option value="pending">Keep pending — return later</option></select></label>':'<label>Reason<select id="driverReason"><option>No access</option><option>Customer unavailable</option><option>Unsafe conditions</option><option>Not required today</option><option>Other</option></select></label><label>Notes (optional)<textarea id="driverDetail" rows="2"></textarea></label>'}<div class="driver-secondary"><button type="button" data-driver="cancel">Cancel</button><button type="submit" class="driver-save">Save ${issue?'issue':'skip'} →</button></div></form></div>`;
+      $('driverLogForm').addEventListener('submit',ev=>{ev.preventDefault();const detail=$('driverDetail').value.trim();const outcome=issue?$('driverOutcome').value:'skipped';driverLog(stop,outcome,{reason:issue?'Issue: '+detail:$('driverReason').value,notes:issue?[stop.notes,'Issue: '+detail].filter(Boolean).join('\n'):detail||stop.notes});});
+      $('driverEditor').querySelector('textarea,select').focus();return;
+    }
+  }
+  function driverLog(stop,status,extra={}){
+    const route=getActiveRoute();driverUndo={routeId:route.id,stop:JSON.parse(JSON.stringify(stop))};
+    if(extra.notes!==undefined)stop.notes=extra.notes;
+    changeStopStatus(stop.id,status,extra);
+    if(status==='pending')showToast('Issue saved. Stop stays pending for follow-up.');
+  }
   function startOrCompleteRoute() {
     const route=getActiveRoute();if(!route)return;const c=counts(route);
     if(route.status==='complete')return;
     if(c.total>0&&c.pending===0){openCompleteDialog();return;}
     route.status='active';route.startedAt=route.startedAt||new Date().toISOString();
-    route.updatedAt=new Date().toISOString();saveState();render();showToast('Route started.');
+    route.updatedAt=new Date().toISOString();state.ui=state.ui||{};state.ui.driverRoute=route.id;saveState();render();showToast('Driver mode ready.');
   }
   function openCompleteDialog() {
     const route=getActiveRoute();if(!route)return;
