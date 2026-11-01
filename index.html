@@ -58,7 +58,7 @@
             <div class="empty-illustration"><div class="empty-route-line"></div><div class="empty-pin pin-a">1</div><div class="empty-pin pin-b">2</div><div class="empty-pin pin-c">3</div><div class="empty-sun"></div></div>
             <p class="eyebrow">READY WHEN YOU ARE</p><h2>Start with a route list</h2><p>Paste addresses or import a CSV. RouteDesk will keep the stop order, let drivers mark serviced or skipped, and create a shareable completion report.</p>
             <div class="empty-actions"><button class="button button-primary" id="emptyNewRoute" type="button">＋ Create a route</button><button class="button button-secondary" id="emptyImport" type="button">↑ Import CSV</button></div>
-            <button class="text-button" id="loadDemoButton" type="button">See a small demo route</button>
+            <button class="button button-secondary" data-extra="scan">▣ Scan an address list</button><button class="text-button" id="loadDemoButton" type="button">See a small demo route</button>
           </div>
 
           <div id="todayRouteContent" hidden>
@@ -76,7 +76,7 @@
 
             <div class="main-grid">
               <section class="panel stop-panel">
-                <div class="panel-heading stop-panel-heading"><div><p class="eyebrow">STOP LIST</p><h3>Route sequence</h3></div><div class="stop-panel-actions"><button class="button button-quiet" id="approxOptimizeButton" type="button" title="Approximate optimization requires latitude and longitude for every stop">✳ Approx. order</button><button class="button button-quiet" id="addStopButton" type="button">＋ Add stop</button></div></div>
+                <div class="panel-heading stop-panel-heading"><div><p class="eyebrow">STOP LIST</p><h3>Route sequence</h3></div><div class="stop-panel-actions"><button class="button button-quiet" data-extra="scan">▣ Scan list</button><button class="button button-quiet" data-extra="plan">↝ Plan route</button><button class="button button-quiet" data-extra="undo-plan">↶ Undo planned order</button><button class="button button-quiet" id="approxOptimizeButton" type="button" title="Approximate optimization requires latitude and longitude for every stop">✳ Approx. order</button><button class="button button-quiet" id="addStopButton" type="button">＋ Add stop</button></div></div>
                 <div class="route-sequence-note" id="sequenceNote"><span class="note-icon">↕</span><span>Imported order is preserved. Use the arrows to reorder, or include <code>lat</code>/<code>lon</code> columns for an approximate distance sort.</span></div>
                 <div class="stop-toolbar"><div class="filter-pills" role="tablist"><button class="filter-pill active" data-filter="all" type="button">All <span id="filterAllCount">0</span></button><button class="filter-pill" data-filter="pending" type="button">Pending <span id="filterPendingCount">0</span></button><button class="filter-pill" data-filter="serviced" type="button">Serviced <span id="filterServicedCount">0</span></button><button class="filter-pill" data-filter="skipped" type="button">Skipped <span id="filterSkippedCount">0</span></button></div><label class="search-box"><span>⌕</span><input id="stopSearch" type="search" placeholder="Search stops" aria-label="Search stops"></label></div>
                 <div class="stop-list" id="stopList"></div>
@@ -99,7 +99,7 @@
           </div>
           <div class="routes-list" id="libraryList"></div>
           <div class="empty-state compact-empty" id="libraryEmpty" hidden><div class="empty-icon-round">▦</div><h2>No master lists yet</h2><p>Add the stop list you drive most often. You upload it once and reuse it every day.</p><button class="button button-primary" id="libraryEmptyNew" type="button">＋ New master list</button></div>
-          <div class="report-note"><span>i</span><p>Starting a run copies the stops into a new route, so the master list is never changed by drivers' notes or skip reasons. Finishing a run moves it to Past routes and leaves the list ready for the next run.</p></div>
+          <div class="report-note"><span>i</span><p>Starting a run copies the stops into a new route, so the master list is never changed by drivers' notes or skip reasons. Finishing a run moves it to Completed routes and leaves the list ready for the next run.</p></div>
         </section>
 
         <section class="screen" id="screen-routes">
@@ -111,7 +111,7 @@
         <section class="screen" id="screen-completed">
           <div class="page-heading">
             <div><p class="eyebrow">OWNER / MANAGER</p><h1>Completed jobs</h1><p class="page-subtitle">Every run a driver finishes is submitted here automatically. Open one to review the stop-level record, or export the lot for your files.</p></div>
-            <div class="heading-actions"><button class="button button-secondary" id="submitAllCompletedButton" type="button" hidden>⇧ Send past routes</button><button class="button button-secondary" id="refreshCompletedButton" type="button">⟳ Refresh</button><button class="button button-primary" id="exportCompletedButton" type="button">↓ Export all jobs</button></div>
+            <div class="heading-actions"><button class="button button-secondary" id="submitAllCompletedButton" type="button" hidden>⇧ Send completed routes</button><button class="button button-secondary" id="refreshCompletedButton" type="button">⟳ Refresh</button><button class="button button-primary" id="exportCompletedButton" type="button">↓ Export all jobs</button></div>
           </div>
 
           <div class="empty-state compact-empty" id="completedSetup" hidden>
@@ -192,11 +192,12 @@
 
   <dialog class="modal" id="listDialog"><form method="dialog" id="listForm"><div class="modal-head"><div><p class="eyebrow">MASTER LIST</p><h2>New master list</h2></div><button class="icon-button modal-close" type="button" data-close-dialog="listDialog">×</button></div><div class="modal-body"><label class="field-label" for="listNameInput">List name</label><input class="text-input" id="listNameInput" maxlength="80" placeholder="e.g. North district — daily" required><label class="field-label" for="listDriverInput">Default driver</label><input class="text-input" id="listDriverInput" maxlength="80" placeholder="Driver name"><label class="field-label" for="listStopsInput">Stops <span class="label-soft">(one address per line)</span></label><textarea class="text-input textarea-input" id="listStopsInput" rows="7"></textarea><div class="modal-footnote">For spreadsheet columns or coordinates, use <strong>Import CSV</strong> on the Master lists screen.</div></div><div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="listDialog">Cancel</button><button class="button button-primary" type="submit">Save master list</button></div></form></dialog>
 
-  <dialog class="modal small-modal" id="completeDialog"><form method="dialog"><div class="modal-head"><div><p class="eyebrow">END OF RUN</p><h2>Finish this route?</h2></div><button class="icon-button modal-close" type="button" data-close-dialog="completeDialog">×</button></div><div class="modal-body"><p class="skip-stop-address" id="completeSummary"></p><p class="field-help">The finished run moves to <strong>Past routes</strong> and stays in your service log with its timestamps intact.</p><div class="complete-options"><button class="button button-primary button-wide" type="button" data-complete-mode="restart">Mark completed &amp; start a fresh run</button><button class="button button-secondary button-wide" type="button" data-complete-mode="archive">Mark completed only</button></div><p class="field-help">A fresh run reuses the same stops and clears serviced, skipped, notes, and timestamps for the interactive list. The completed run keeps its own log.</p></div></form></dialog>
+  <dialog class="modal small-modal" id="completeDialog"><form method="dialog"><div class="modal-head"><div><p class="eyebrow">END OF RUN</p><h2>Finish this route?</h2></div><button class="icon-button modal-close" type="button" data-close-dialog="completeDialog">×</button></div><div class="modal-body"><p class="skip-stop-address" id="completeSummary"></p><p class="field-help">The finished run moves to <strong>Completed routes</strong> and stays in your service log with its timestamps intact.</p><div class="complete-options"><button class="button button-primary button-wide" type="button" data-complete-mode="restart">Mark completed &amp; start a fresh run</button><button class="button button-secondary button-wide" type="button" data-complete-mode="archive">Mark completed only</button></div><p class="field-help">A fresh run reuses the same stops and clears serviced, skipped, notes, and timestamps for the interactive list. The completed run keeps its own log.</p></div></form></dialog>
 
   <dialog class="modal" id="reviewDialog"><form method="dialog"><div class="modal-head"><div><p class="eyebrow">COMPLETED RUN</p><h2 id="reviewTitle">Run</h2><p class="review-meta" id="reviewMeta"></p></div><button class="icon-button modal-close" type="button" data-close-dialog="reviewDialog">×</button></div><div class="modal-body"><div class="review-list" id="reviewBody"></div><p class="review-meta" id="reviewReviewedLine"></p><label class="field-label" for="reviewNoteInput">Manager note <span class="label-soft">for the record</span></label><textarea class="text-input textarea-input" id="reviewNoteInput" rows="3" placeholder="e.g. Verified with customer, or follow up on the missed stop"></textarea></div><div class="modal-actions"><button class="button button-secondary" type="button" data-close-dialog="reviewDialog">Close</button><button class="button button-primary" id="saveReviewButton" type="button" data-review-save="">Save note</button></div></form></dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="extras.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

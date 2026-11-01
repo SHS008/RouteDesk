@@ -7,13 +7,14 @@
  * already visited the app. Bump CACHE_VERSION on every release anyway — it
  * makes the activate step clear stale precache entries deterministically.
  */
-const CACHE_VERSION = 'v14-driver-home';
+const CACHE_VERSION = 'v15-route-tools-preview';
 const CACHE_NAME = `routedesk-free-${CACHE_VERSION}`;
 const SHELL = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './extras.js',
   './manifest.webmanifest',
   './icon.svg',
   './icon-192.png',

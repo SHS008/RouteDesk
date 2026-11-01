@@ -70,8 +70,10 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       const indicator = document.querySelector('.local-pill');
       if (indicator) indicator.title = `Saved locally at ${new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}`;
+      return true;
     } catch (err) {
       showToast('Could not save. This browser may be out of storage space.');
+      return false;
     }
   }
   function esc(value) {
@@ -156,9 +158,9 @@
     $('routeDateLabel').textContent = prettyDate(route.date);
     $('routeDriverLabel').textContent = route.driver || 'Unassigned';
     $('routeStopCountLabel').textContent = `${route.stops.length} stops`;
-    const firstAddress = route.startAddress ? `Starts: ${route.startAddress}` : route.orderMethod === 'Approximate straight-line distance' ? 'Approximate straight-line order · first stop anchored' : route.orderMethod === 'Manual reorder' ? 'Manually reordered · edit stops any time' : 'Imported sequence · edit stops any time';
+    const firstAddress = route.orderMethod?.startsWith('Estimated road-time') ? 'Estimated road-time order · no live traffic · approach side advisory only' : route.startAddress ? `Starts: ${route.startAddress}` : route.orderMethod === 'Approximate straight-line distance' ? 'Approximate straight-line order · first stop anchored' : route.orderMethod === 'Manual reorder' ? 'Manually reordered · edit stops any time' : 'Imported sequence · edit stops any time';
     $('routeOriginSummary').textContent = firstAddress;
-    $('sequenceNote').innerHTML = route.orderMethod === 'Approximate straight-line distance' ? '<span class="note-icon">↕</span><span>Approximate straight-line order is active. It is not road-time or traffic-aware. Use the arrows to adjust stops.</span>' : route.orderMethod === 'Manual reorder' ? '<span class="note-icon">↕</span><span>Stops were manually reordered. Use the arrows to keep adjusting the sequence.</span>' : '<span class="note-icon">↕</span><span>Imported order is preserved. Use the arrows to reorder, or include <code>lat</code>/<code>lon</code> columns for an approximate distance sort.</span>';
+    $('sequenceNote').innerHTML = route.orderMethod?.startsWith('Estimated road-time') ? '<span class="note-icon">↝</span><span>Estimated road-time order applied. No live traffic or enforced approach side. Undo planned order restores the previous sequence.</span>' : route.orderMethod === 'Approximate straight-line distance' ? '<span class="note-icon">↕</span><span>Approximate straight-line order is active. It is not road-time or traffic-aware. Use the arrows to adjust stops.</span>' : route.orderMethod === 'Manual reorder' ? '<span class="note-icon">↕</span><span>Stops were manually reordered. Use the arrows to keep adjusting the sequence.</span>' : '<span class="note-icon">↕</span><span>Imported order is preserved. Use the arrows to reorder, or include <code>lat</code>/<code>lon</code> columns for an approximate distance sort.</span>';
     $('routeStatusDot').className = `route-status-dot ${route.status === 'active' ? 'active' : route.status === 'complete' ? 'complete' : ''}`;
     $('startRouteButton').textContent = route.status === 'complete' ? 'Route completed' : route.status === 'active' ? 'Continue route' : 'Start route';
     $('startRouteButton').disabled = route.status === 'complete';
@@ -276,7 +278,7 @@
     const past = state.routes.filter(r => r.status === 'complete');
     list.innerHTML =
       routeSection('IN PROGRESS & UPCOMING', 'No open runs. Start one from a master list.', current) +
-      routeSection('PAST ROUTES', 'Completed runs are kept here for reporting. Restart one to drive the same stops again.', past);
+      routeSection('COMPLETED ROUTES', 'Completed runs are kept here for reporting. Restart one to drive the same stops again.', past);
   }
   function renderLibrary() {
     const list = $('libraryList'); const empty = $('libraryEmpty');
@@ -443,7 +445,7 @@
     if(status==='pending'&&route.status==='complete'){route.status='active';route.completedAt=null;}
     if(status!=='pending'&&route.status==='planned')route.status='active';
     const c=counts(route);if(c.total>0&&c.pending===0&&route.status!=='complete')route.status='active';
-    saveState();render();showToast(status==='serviced'?'Stop marked serviced.':status==='skipped'?'Skip recorded.':'Stop reopened.');
+    if(!saveState())return false;render();showToast(status==='serviced'?'Stop marked serviced.':status==='skipped'?'Skip recorded.':'Stop reopened.');return true;
   }
   let driverUndo = null;
   function renderDriverMode() {
@@ -454,7 +456,7 @@
     panel.hidden=!visible;document.body.classList.toggle('driving',!!visible);if(!visible)return;
     const pending=route.stops.filter(s=>s.status==='pending');const stop=pending[0];const c=counts(route);
     panel.innerHTML=`<div class="driver-shell"><header class="driver-head"><div><span class="driver-brand">ROUTEDESK / DRIVER MODE</span><p>${esc(route.name)}</p></div><button data-driver="exit" class="driver-small">✕ Exit to home</button></header><div class="driver-progress"><span>${c.total-c.pending} of ${c.total} logged</span><span>● Saved on this device</span></div><progress max="${c.total||1}" value="${c.total-c.pending}"></progress>
-    ${stop?`<main class="driver-current"><span class="driver-kicker">NEXT STOP · ${route.stops.indexOf(stop)+1} OF ${c.total}</span><h1>${esc(stop.name||stop.address||'Unnamed stop')}</h1>${stop.name?`<p class="driver-address">${esc(stop.address)}</p>`:''}${stop.notes?`<div class="driver-note"><strong>STOP NOTES</strong><p>${esc(stop.notes)}</p></div>`:''}<button class="driver-nav" data-driver="navigate">↗ Open navigation <span>Optional · uses your selected maps app</span></button></main><div class="driver-actions"><button class="driver-serviced" data-driver="service"><span>✓</span> Serviced <small>Save & next stop →</small></button><div class="driver-secondary"><button data-driver="skip">↷ Skipped</button><button data-driver="issue">⚠ Issue</button></div><p class="driver-hint">No signal needed. Each log is saved before you move on.</p></div>`:`<main class="driver-current driver-done"><span class="driver-kicker">ALL STOPS LOGGED</span><h1>That’s the last stop.</h1><p class="driver-address">${c.serviced} serviced · ${c.skipped} skipped</p><p>Your log is saved locally. Finish the route when you’re ready.</p><button class="driver-serviced" data-driver="finish">Finish route →</button></main>`}
+    ${stop?`<main class="driver-current"><span class="driver-kicker">NEXT STOP · ${route.stops.indexOf(stop)+1} OF ${c.total}</span><h1>${esc(stop.name||stop.address||'Unnamed stop')}</h1>${stop.name?`<p class="driver-address">${esc(stop.address)}</p>`:''}${stop.notes?`<div class="driver-note"><strong>STOP NOTES</strong><p>${esc(stop.notes)}</p></div>`:''}${route.approachSide&&route.approachSide!=='either'?`<p class="approach-advisory">${route.approachSide==='right'?'Right':'Left'}-side approach preferred · not enforced by routing</p>`:''}${window.RouteDeskExtras?.stopMap(stop)||''}<button class="driver-nav" data-driver="navigate">↗ Open navigation <span>Optional · uses your selected maps app</span></button></main><div class="driver-actions"><button class="driver-serviced" data-driver="service"><span>✓</span> ${pending.length===1?'Serviced · Finish & save':'Serviced'} <small>${pending.length===1?'Archive this completed route →':'Save & next stop →'}</small></button><div class="driver-secondary"><button data-driver="skip">↷ Skipped</button><button data-driver="issue">⚠ Issue</button></div><p class="driver-hint">No signal needed. Each log is saved before you move on.</p></div>`:`<main class="driver-current driver-done"><span class="driver-kicker">ALL STOPS LOGGED</span><h1>That’s the last stop.</h1><p class="driver-address">${c.serviced} serviced · ${c.skipped} skipped</p><p>Your log is saved locally. Finish the route when you’re ready.</p><button class="driver-serviced" data-driver="finish">Finish route →</button></main>`}
     <footer class="driver-footer"><button data-driver="undo" ${driverUndo?.routeId===route.id?'':'disabled'}>↶ Undo last log</button><button data-driver="exit">☷ View stop list</button></footer><div id="driverEditor"></div></div>`;
   }
   function driverClick(e){
@@ -468,16 +470,18 @@
     if(!stop)return;
     if(action==='service'){driverLog(stop,'serviced');return;}
     if(action==='skip'||action==='issue'){
-      const issue=action==='issue';$('driverEditor').innerHTML=`<div class="driver-editor" role="dialog" aria-modal="true" aria-labelledby="driverEditorTitle"><form id="driverLogForm"><span class="driver-kicker">STOP ${route.stops.indexOf(stop)+1}</span><h2 id="driverEditorTitle">${issue?'Record an issue':'Skip this stop'}</h2><p>${esc(stop.name||stop.address)}</p>${issue?'<label>What happened?<textarea id="driverDetail" required rows="3" placeholder="Describe the issue…"></textarea></label><label>Stop outcome<select id="driverOutcome"><option value="serviced">Serviced — with issue noted</option><option value="skipped">Skipped — could not service</option><option value="pending">Keep pending — return later</option></select></label>':'<label>Reason<select id="driverReason"><option>No access</option><option>Customer unavailable</option><option>Unsafe conditions</option><option>Not required today</option><option>Other</option></select></label><label>Notes (optional)<textarea id="driverDetail" rows="2"></textarea></label>'}<div class="driver-secondary"><button type="button" data-driver="cancel">Cancel</button><button type="submit" class="driver-save">Save ${issue?'issue':'skip'} →</button></div></form></div>`;
+      const issue=action==='issue';$('driverEditor').innerHTML=`<div class="driver-editor" role="dialog" aria-modal="true" aria-labelledby="driverEditorTitle"><form id="driverLogForm"><span class="driver-kicker">STOP ${route.stops.indexOf(stop)+1}</span><h2 id="driverEditorTitle">${issue?'Record an issue':'Skip this stop'}</h2><p>${esc(stop.name||stop.address)}</p>${issue?'<label>What happened?<textarea id="driverDetail" required rows="3" placeholder="Describe the issue…"></textarea></label><label>Stop outcome<select id="driverOutcome"><option value="serviced">Serviced — with issue noted</option><option value="skipped">Skipped — could not service</option><option value="pending">Keep pending — return later</option></select></label>':'<label>Reason<select id="driverReason"><option>No access</option><option>Customer unavailable</option><option>Unsafe conditions</option><option>Not required today</option><option>Other</option></select></label><label>Notes (optional)<textarea id="driverDetail" rows="2"></textarea></label>'}<div class="driver-secondary"><button type="button" data-driver="cancel">Cancel</button><button type="submit" class="driver-save">${route.stops.filter(s=>s.status==='pending').length===1?'Finish & save':'Save '+(issue?'issue':'skip')+' →'}</button></div></form></div>`;
       $('driverLogForm').addEventListener('submit',ev=>{ev.preventDefault();const detail=$('driverDetail').value.trim();const outcome=issue?$('driverOutcome').value:'skipped';driverLog(stop,outcome,{reason:issue?'Issue: '+detail:$('driverReason').value,notes:issue?[stop.notes,'Issue: '+detail].filter(Boolean).join('\n'):detail||stop.notes});});
+      if(issue&&route.stops.filter(s=>s.status==='pending').length===1)$('driverOutcome').addEventListener('change',()=>{$('driverLogForm').querySelector('[type=submit]').textContent=$('driverOutcome').value==='pending'?'Save issue · keep pending':'Finish & save';});
       $('driverEditor').querySelector('textarea,select').focus();return;
     }
   }
   function driverLog(stop,status,extra={}){
     const route=getActiveRoute();driverUndo={routeId:route.id,stop:JSON.parse(JSON.stringify(stop))};
     if(extra.notes!==undefined)stop.notes=extra.notes;
-    changeStopStatus(stop.id,status,extra);
+    if(changeStopStatus(stop.id,status,extra)===false){Object.assign(stop,driverUndo.stop);render();showToast('Log was NOT saved. Free browser storage and retry.');return;}
     if(status==='pending')showToast('Issue saved. Stop stays pending for follow-up.');
+    else if(counts(route).pending===0){delete state.ui.driverRoute;driverUndo=null;finishRoute('archive');}
   }
   function startOrCompleteRoute() {
     const route=getActiveRoute();if(!route)return;const c=counts(route);
@@ -506,7 +510,8 @@
   function finishRoute(mode) {
     const route=getActiveRoute();if(!route)return;
     const now=new Date().toISOString();
-    route.status='complete';route.completedAt=now;route.updatedAt=now;
+    const previousStatus=route.status;route.status='complete';route.completedAt=now;route.updatedAt=now;
+    if(!saveState()){route.status=previousStatus;route.completedAt=null;render();showToast('Could not archive this route. Free browser storage and retry.');return;}
     const submitted=route;
     closeDialog('completeDialog');
     // Automatic hand-off to the manager portal (queued when offline).
@@ -514,19 +519,19 @@
     if(mode==='restart'){
       const next=freshRunFrom(route);
       state.activeRouteId=next.id;saveState();render();setScreen('today');
-      showToast('Run archived to past routes. A fresh run is ready.');
+      showToast('Run archived to completed routes. A fresh run is ready.');
       return;
     }
     const open=state.routes.filter(r=>r.status!=='complete');
     state.activeRouteId=open.length?open[0].id:null;
     saveState();render();setScreen('routes');
-    showToast('Run archived to past routes. Its service log is unchanged.');
+    showToast('Finished & saved to completed routes. Portal upload waits for coverage if configured.');
   }
   function restartRoute(routeId) {
     const route=getRoute(routeId);if(!route)return;
     const next=freshRunFrom(route);
     state.activeRouteId=next.id;saveState();render();setScreen('today');
-    showToast('Restarted. Previous run is kept in past routes.');
+    showToast('Restarted. Previous run is kept in completed routes.');
   }
   function moveStop(stopId,delta) {
     const route=getActiveRoute();if(!route)return;const i=route.stops.findIndex(s=>s.id===stopId);const j=i+delta;if(i<0||j<0||j>=route.stops.length)return;
@@ -1157,7 +1162,7 @@ grant select, insert, update on public.completed_runs to anon;`;
     const template = state.templates.find(t => t.id === templateId);
     if (!template) return;
     const runs = state.routes.filter(r => r.templateId === template.id).length;
-    const warning = runs ? `\n\n${runs} saved run${runs === 1 ? '' : 's'} will stay in past routes.` : '';
+    const warning = runs ? `\n\n${runs} saved run${runs === 1 ? '' : 's'} will stay in completed routes.` : '';
     if (!window.confirm(`Delete the master list "${template.name}"?${warning}`)) return;
     state.templates = state.templates.filter(t => t.id !== templateId);
     state.routes.forEach(r => { if (r.templateId === templateId) r.templateId = null; });
@@ -1321,5 +1326,6 @@ grant select, insert, update on public.completed_runs to anon;`;
     $('defaultDriverInput').value=state.settings.defaultDriver||'Driver 1';$('navSelect').value=state.settings.navigation||'google';
     render();
   }
+  window.RouteDesk = { get state(){return state;}, getActiveRoute, saveState, render, setScreen, showToast, normalizeStop, createRoute, esc, hasValidCoordinates };
   init();
 })();

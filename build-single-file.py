@@ -10,6 +10,7 @@ src = pathlib.Path(__file__).resolve().parent
 html = (src / 'index.html').read_text()
 css = (src / 'styles.css').read_text()
 js = (src / 'app.js').read_text()
+extras = (src / 'extras.js').read_text()
 
 assert '</script' not in js.lower(), 'app.js contains a closing script tag'
 
@@ -19,6 +20,7 @@ svg_uri = 'data:image/svg+xml;base64,' + base64.b64encode(svg.encode()).decode()
 png_uri = 'data:image/png;base64,' + base64.b64encode((src / 'apple-touch-icon.png').read_bytes()).decode()
 
 html = html.replace('<link rel="stylesheet" href="styles.css">', '<style>\n' + css + '\n</style>')
+html = html.replace('<script src="extras.js" defer></script>', '<script>\n' + extras + '\n</script>')
 html = html.replace('<script src="app.js" defer></script>', '<script>\n' + js + '\n</script>')
 html = html.replace('<link rel="icon" href="icon.svg" type="image/svg+xml">',
                     '<link rel="icon" href="' + svg_uri + '" type="image/svg+xml">')
